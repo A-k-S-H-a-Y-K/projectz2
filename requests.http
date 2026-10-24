@@ -1,0 +1,89 @@
+# API requests for manual testing with the VS Code "REST Client" extension.
+# Start the server first (npm run dev), then click "Send Request" above each request.
+# Run "Sign up" once, then "Log in"; the other requests reuse the login token.
+
+@baseUrl = http://localhost:3001
+@token = {{login.response.body.token}}
+
+### Health check
+GET {{baseUrl}}/health
+
+### Sign up (only needed once)
+POST {{baseUrl}}/auth/signup
+Content-Type: application/json
+
+{
+  "email": "test@example.com",
+  "name": "Test User",
+  "password": "password123"
+}
+
+### Log in
+# @name login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "test@example.com",
+  "password": "password123"
+}
+
+### Current session
+GET {{baseUrl}}/auth/session
+Authorization: Bearer {{token}}
+
+### Create a memory
+POST {{baseUrl}}/memories
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "title": "Trip to Goa",
+  "content": "Went to Goa in March 2026 with college friends. Stayed near Baga beach, tried scuba diving at Grande Island and loved the fish curry at a small shack called Brittos.",
+  "tags": ["travel", "friends"]
+}
+
+### Create another memory
+POST {{baseUrl}}/memories
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "title": "Project idea",
+  "content": "Build a federated learning demo for hospitals that never shares raw patient data. Start with a simple intrusion detection dataset.",
+  "tags": ["ideas", "work"]
+}
+
+### List memories
+GET {{baseUrl}}/memories?page=1&limit=10
+Authorization: Bearer {{token}}
+
+### List memories filtered by tag
+GET {{baseUrl}}/memories?tags=travel
+Authorization: Bearer {{token}}
+
+### Ask a question about your memories
+POST {{baseUrl}}/ai/search
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": "Where did I go scuba diving?"
+}
+
+### Get one memory (change the id to one from the list)
+GET {{baseUrl}}/memories/1
+Authorization: Bearer {{token}}
+
+### Update a memory
+PUT {{baseUrl}}/memories/1
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "tags": ["travel", "friends", "beach"]
+}
+
+### Delete a memory
+DELETE {{baseUrl}}/memories/2
+Authorization: Bearer {{token}}
