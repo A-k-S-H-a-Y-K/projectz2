@@ -14,16 +14,15 @@
     "@hono/node-server": "^1.14.4",
     "@hono/zod-validator": "^0.9.1",
     "@mistralai/mistralai": "^3.2.0",
-    "@pinecone-database/pinecone": "^6.1.0",
+    "@pinecone-database/pinecone": "^9.1.0",
     "@prisma/client": "^5.10.2",
-    "bcryptjs": "^2.4.3",
+    "bcryptjs": "^3.0.3",
     "dotenv": "^16.4.5",
     "hono": "^4.7.11",
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
-    "@types/node": "^20.11.17",
+    "@types/node": "^24.19.2",
     "prisma": "^5.10.2",
     "tsx": "^4.7.1",
     "typescript": "^5.8.3"

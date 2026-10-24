@@ -14,7 +14,7 @@ if (!process.env.MISTRAL_API_KEY) {
 
 const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
 const indexName = process.env.PINECONE_INDEX_NAME;
-const index = pinecone.index(indexName);
+const index = pinecone.index({ name: indexName });
 
 const mistral = new Mistral({ apiKey: process.env.MISTRAL_API_KEY });
 
@@ -54,23 +54,25 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 
 export async function storeMemoryEmbedding(memory: Memory) {
   const embedding = await generateEmbedding(memory.content);
-  await index.upsert([
-    {
-      id: memory.id.toString(),
-      values: embedding,
-      metadata: {
-        userId: memory.userId.toString(),
-        content: memory.content,
-        title: memory.title || '',
-        tags: memory.tags,
+  await index.upsert({
+    records: [
+      {
+        id: memory.id.toString(),
+        values: embedding,
+        metadata: {
+          userId: memory.userId.toString(),
+          content: memory.content,
+          title: memory.title || '',
+          tags: memory.tags,
+        },
       },
-    },
-  ]);
+    ],
+  });
   console.log(`Memory stored in Pinecone (ID: ${memory.id})`);
 }
 
 export async function deleteMemoryEmbedding(memoryId: number) {
-  await index.deleteOne(memoryId.toString());
+  await index.deleteOne({ id: memoryId.toString() });
 }
 
 export async function searchMemories(
