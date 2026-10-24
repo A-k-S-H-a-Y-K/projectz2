@@ -3,98 +3,42 @@ import { zValidator } from '@hono/zod-validator';
 import { searchSchema } from '../validations/index.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { searchMemories, generateAnswer } from '../services/ai.js';
+import { withTimeout } from '../lib/timeout.js';
 import type { SearchResponse } from '../types/index.js';
-import { db } from '../lib/db.js';
+
+const SEARCH_TIMEOUT_MS = 10_000;
+const ANSWER_TIMEOUT_MS = 15_000;
 
 const ai = new Hono();
 
 ai.use('/*', authMiddleware);
 
 ai.post('/search', zValidator('json', searchSchema), async (c) => {
-  try {
-    const user = c.get('user');
-    const { query } = c.req.valid('json');
+  const { userId } = c.get('user');
+  const { query } = c.req.valid('json');
 
-    // Ensure userId is a number for database operations
-    const userId = Number(user.userId);
-    if (isNaN(userId) || userId <= 0) {
-      return c.json({ error: 'Invalid user ID' }, 400);
-    }
+  const references = await withTimeout(
+    searchMemories(query, userId),
+    SEARCH_TIMEOUT_MS,
+    'Memory search'
+  );
 
-    // Validate user exists
-    const dbUser = await db.user.findUnique({
-      where: { id: userId },
-      select: { id: true },
-    });
-
-    if (!dbUser) {
-      return c.json({ error: 'User not found' }, 404);
-    }
-
-    // Search for relevant memories with timeout
-    let relevantMemories;
-    try {
-      relevantMemories = await Promise.race([
-        searchMemories(query, userId),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Search timeout')), 10000)
-        ),
-      ]);
-    } catch (error) {
-      console.error('Memory search error:', error);
-      return c.json({ 
-        error: 'Failed to search memories',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      }, 500);
-    }
-
-    if (!Array.isArray(relevantMemories)) {
-      console.error('Invalid search response:', relevantMemories);
-      return c.json({ error: 'Invalid search response' }, 500);
-    }
-
-    if (relevantMemories.length === 0) {
-      return c.json({
-        answer: "I couldn't find any relevant memories to answer your question.",
-        references: [],
-      });
-    }
-
-    // Generate answer using RAG with timeout
-    let answer;
-    try {
-      answer = await Promise.race([
-        generateAnswer(query, relevantMemories),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Answer generation timeout')), 15000)
-        ),
-      ]);
-    } catch (error) {
-      console.error('Answer generation error:', error);
-      return c.json({ 
-        error: 'Failed to generate answer',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      }, 500);
-    }
-
-    if (typeof answer !== 'string') {
-      console.error('Invalid answer response:', answer);
-      return c.json({ error: 'Invalid answer response' }, 500);
-    }
-
+  if (references.length === 0) {
     const response: SearchResponse = {
-      answer,
-      references: relevantMemories,
+      answer: "I couldn't find any relevant memories to answer your question.",
+      references: [],
     };
-
     return c.json(response);
-  } catch (error: unknown) {
-    console.error('AI search error:', error);
-    return c.json({ 
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    }, 500);
   }
+
+  const answer = await withTimeout(
+    generateAnswer(query, references),
+    ANSWER_TIMEOUT_MS,
+    'Answer generation'
+  );
+
+  const response: SearchResponse = { answer, references };
+  return c.json(response);
 });
 
-export default ai; 
+export default ai;

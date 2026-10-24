@@ -19,6 +19,10 @@ export const createMemorySchema = z.object({
 
 export const updateMemorySchema = createMemorySchema.partial();
 
+export const memoryIdParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+});
+
 export const searchSchema = z.object({
   query: z.string().min(1),
 });
