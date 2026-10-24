@@ -13,8 +13,8 @@ export const loginSchema = z.object({
 
 export const createMemorySchema = z.object({
   title: z.string().max(200).optional(),
-  // Keeps each memory within the embedding model's input limit
-  content: z.string().min(1).max(20_000),
+  // Keeps each memory within the embedding model's 2,048-token input limit
+  content: z.string().min(1).max(8_000),
   tags: z.array(z.string().min(1).max(50)).max(20),
 });
 

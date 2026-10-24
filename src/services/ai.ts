@@ -1,5 +1,5 @@
 import { Pinecone } from '@pinecone-database/pinecone';
-import { Mistral } from '@mistralai/mistralai';
+import { GoogleGenAI } from '@google/genai';
 import type { Memory } from '@prisma/client';
 import { db } from '../lib/db.js';
 
@@ -8,18 +8,23 @@ if (!process.env.PINECONE_API_KEY || !process.env.PINECONE_INDEX_NAME) {
     'Missing Pinecone configuration: Please set PINECONE_API_KEY and PINECONE_INDEX_NAME in your .env file.'
   );
 }
-if (!process.env.MISTRAL_API_KEY) {
-  throw new Error('Missing Mistral configuration: Please set MISTRAL_API_KEY in your .env file.');
+if (!process.env.GEMINI_API_KEY) {
+  throw new Error('Missing Gemini configuration: Please set GEMINI_API_KEY in your .env file.');
 }
 
 const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
 const indexName = process.env.PINECONE_INDEX_NAME;
 const index = pinecone.index({ name: indexName });
 
-const mistral = new Mistral({ apiKey: process.env.MISTRAL_API_KEY });
+const gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-const EMBEDDING_MODEL = 'mistral-embed';
-const CHAT_MODEL = process.env.MISTRAL_CHAT_MODEL || 'mistral-medium-latest';
+const EMBEDDING_MODEL = 'gemini-embedding-001';
+// Must match the Pinecone index dimension (see scripts/setup-pinecone.ts)
+const EMBEDDING_DIMENSION = 1024;
+const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || 'gemini-flash-lite-latest';
+
+// Gemini tunes embeddings differently for stored documents and search queries
+type EmbeddingTask = 'RETRIEVAL_DOCUMENT' | 'RETRIEVAL_QUERY';
 
 // Check the index exists at startup so a typo shows up immediately in the logs
 (async () => {
@@ -39,21 +44,34 @@ const CHAT_MODEL = process.env.MISTRAL_CHAT_MODEL || 'mistral-medium-latest';
   }
 })();
 
-export async function generateEmbedding(text: string): Promise<number[]> {
-  const response = await mistral.embeddings.create({
+export async function generateEmbedding(
+  text: string,
+  taskType: EmbeddingTask,
+  title?: string
+): Promise<number[]> {
+  const response = await gemini.models.embedContent({
     model: EMBEDDING_MODEL,
-    inputs: text,
+    contents: text,
+    config: {
+      taskType,
+      outputDimensionality: EMBEDDING_DIMENSION,
+      ...(title && taskType === 'RETRIEVAL_DOCUMENT' && { title }),
+    },
   });
 
-  const embedding = response.data[0]?.embedding;
+  const embedding = response.embeddings?.[0]?.values;
   if (!embedding) {
-    throw new Error('Mistral returned no embedding');
+    throw new Error('Gemini returned no embedding');
   }
   return embedding;
 }
 
 export async function storeMemoryEmbedding(memory: Memory) {
-  const embedding = await generateEmbedding(memory.content);
+  const embedding = await generateEmbedding(
+    memory.content,
+    'RETRIEVAL_DOCUMENT',
+    memory.title ?? undefined
+  );
   await index.upsert({
     records: [
       {
@@ -80,7 +98,7 @@ export async function searchMemories(
   userId: number,
   topK: number = 5
 ): Promise<Memory[]> {
-  const queryEmbedding = await generateEmbedding(query);
+  const queryEmbedding = await generateEmbedding(query, 'RETRIEVAL_QUERY');
 
   const searchResults = await index.query({
     vector: queryEmbedding,
@@ -116,17 +134,10 @@ User's question: ${query}
 
 Please provide a helpful answer based on the context above. If the context doesn't contain relevant information, say so.`;
 
-  const response = await mistral.chat.complete({
+  const response = await gemini.models.generateContent({
     model: CHAT_MODEL,
-    messages: [{ role: 'user', content: prompt }],
+    contents: prompt,
   });
 
-  // Content is either plain text or a list of chunks; keep only the text parts
-  const content = response.choices[0]?.message?.content;
-  if (typeof content === 'string') {
-    return content;
-  }
-  return (content ?? [])
-    .map((chunk) => (chunk.type === 'text' ? chunk.text : ''))
-    .join('');
+  return response.text ?? '';
 }
