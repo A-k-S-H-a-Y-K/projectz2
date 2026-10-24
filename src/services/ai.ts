@@ -1,5 +1,5 @@
 import { Pinecone } from '@pinecone-database/pinecone';
-import MistralClient from '@mistralai/mistralai';
+import { Mistral } from '@mistralai/mistralai';
 import type { Memory } from '@prisma/client';
 import { db } from '../lib/db.js';
 
@@ -16,7 +16,10 @@ const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
 const indexName = process.env.PINECONE_INDEX_NAME;
 const index = pinecone.index(indexName);
 
-const mistral = new MistralClient(process.env.MISTRAL_API_KEY);
+const mistral = new Mistral({ apiKey: process.env.MISTRAL_API_KEY });
+
+const EMBEDDING_MODEL = 'mistral-embed';
+const CHAT_MODEL = process.env.MISTRAL_CHAT_MODEL || 'mistral-medium-latest';
 
 // Check the index exists at startup so a typo shows up immediately in the logs
 (async () => {
@@ -37,11 +40,16 @@ const mistral = new MistralClient(process.env.MISTRAL_API_KEY);
 })();
 
 export async function generateEmbedding(text: string): Promise<number[]> {
-  const response = await mistral.embeddings({
-    model: 'mistral-embed',
-    input: text,
+  const response = await mistral.embeddings.create({
+    model: EMBEDDING_MODEL,
+    inputs: text,
   });
-  return response.data[0].embedding;
+
+  const embedding = response.data[0]?.embedding;
+  if (!embedding) {
+    throw new Error('Mistral returned no embedding');
+  }
+  return embedding;
 }
 
 export async function storeMemoryEmbedding(memory: Memory) {
@@ -106,10 +114,17 @@ User's question: ${query}
 
 Please provide a helpful answer based on the context above. If the context doesn't contain relevant information, say so.`;
 
-  const response = await mistral.chat({
-    model: 'mistral-medium',
+  const response = await mistral.chat.complete({
+    model: CHAT_MODEL,
     messages: [{ role: 'user', content: prompt }],
   });
 
-  return response.choices[0].message.content;
+  // Content is either plain text or a list of chunks; keep only the text parts
+  const content = response.choices[0]?.message?.content;
+  if (typeof content === 'string') {
+    return content;
+  }
+  return (content ?? [])
+    .map((chunk) => (chunk.type === 'text' ? chunk.text : ''))
+    .join('');
 }

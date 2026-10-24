@@ -13,7 +13,7 @@
   "dependencies": {
     "@hono/node-server": "^1.14.4",
     "@hono/zod-validator": "^0.9.1",
-    "@mistralai/mistralai": "^0.0.10",
+    "@mistralai/mistralai": "^3.2.0",
     "@pinecone-database/pinecone": "^6.1.0",
     "@prisma/client": "^5.10.2",
     "bcryptjs": "^2.4.3",
