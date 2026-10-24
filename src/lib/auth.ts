@@ -1,6 +1,9 @@
 import bcrypt from 'bcryptjs';
 import { sign } from 'hono/jwt';
 
+// Used for both signing and verifying, so tokens signed any other way are rejected
+export const JWT_ALGORITHM = 'HS256';
+
 const DEFAULT_TOKEN_LIFETIME = '7d';
 const SECONDS_PER_UNIT: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
 
@@ -27,5 +30,5 @@ export const generateToken = (payload: { userId: number; email: string }): Promi
   const now = Math.floor(Date.now() / 1000);
   const lifetime = parseDuration(process.env.JWT_EXPIRES_IN || DEFAULT_TOKEN_LIFETIME);
 
-  return sign({ ...payload, iat: now, exp: now + lifetime }, jwtSecret);
+  return sign({ ...payload, iat: now, exp: now + lifetime }, jwtSecret, JWT_ALGORITHM);
 };

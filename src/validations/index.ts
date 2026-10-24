@@ -1,20 +1,21 @@
 import { z } from 'zod';
 
 export const signupSchema = z.object({
-  email: z.string().email(),
+  email: z.email(),
   name: z.string().min(2).max(50),
-  password: z.string().min(8),
+  password: z.string().min(8).max(128),
 });
 
 export const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string(),
+  email: z.email(),
+  password: z.string().max(128),
 });
 
 export const createMemorySchema = z.object({
-  title: z.string().optional(),
-  content: z.string().min(1),
-  tags: z.array(z.string()),
+  title: z.string().max(200).optional(),
+  // Keeps each memory within the embedding model's input limit
+  content: z.string().min(1).max(20_000),
+  tags: z.array(z.string().min(1).max(50)).max(20),
 });
 
 export const updateMemorySchema = createMemorySchema.partial();
@@ -24,7 +25,7 @@ export const memoryIdParamSchema = z.object({
 });
 
 export const searchSchema = z.object({
-  query: z.string().min(1),
+  query: z.string().min(1).max(1_000),
 });
 
 // Query-string values always arrive as strings, and a repeated key
@@ -34,9 +35,9 @@ export const listMemoriesQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(100).default(10),
   tags: z.preprocess(
     (value) => (typeof value === 'string' ? [value] : value),
-    z.array(z.string()).optional()
+    z.array(z.string()).max(20).optional()
   ),
-  search: z.string().optional(),
-  startDate: z.string().datetime().optional(),
-  endDate: z.string().datetime().optional(),
+  search: z.string().max(200).optional(),
+  startDate: z.iso.datetime().optional(),
+  endDate: z.iso.datetime().optional(),
 });

@@ -12,14 +12,14 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.14.4",
-    "@hono/zod-validator": "^0.1.11",
+    "@hono/zod-validator": "^0.9.1",
     "@mistralai/mistralai": "^0.0.10",
     "@pinecone-database/pinecone": "^6.1.0",
     "@prisma/client": "^5.10.2",
     "bcryptjs": "^2.4.3",
     "dotenv": "^16.4.5",
     "hono": "^4.7.11",
-    "zod": "^3.22.4"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -31,7 +31,7 @@
   "allowScripts": {
     "@prisma/client@5.22.0": true,
     "@prisma/engines@5.22.0": true,
-    "esbuild@0.25.5": true,
-    "prisma@5.22.0": true
+    "prisma@5.22.0": true,
+    "esbuild@0.28.2": true
   }
 }
