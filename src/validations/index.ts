@@ -23,14 +23,16 @@ export const searchSchema = z.object({
   query: z.string().min(1),
 });
 
-export const paginationSchema = z.object({
-  page: z.number().int().positive().optional().default(1),
-  limit: z.number().int().positive().max(100).optional().default(10),
-});
-
-export const memoryFiltersSchema = z.object({
-  tags: z.array(z.string()).optional(),
+// Query-string values always arrive as strings, and a repeated key
+// (?tags=a&tags=b) arrives as an array while a single one is a plain string.
+export const listMemoriesQuerySchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(10),
+  tags: z.preprocess(
+    (value) => (typeof value === 'string' ? [value] : value),
+    z.array(z.string()).optional()
+  ),
   search: z.string().optional(),
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
-}); 
+});

@@ -35,7 +35,7 @@ ai.post('/search', zValidator('json', searchSchema), async (c) => {
     let relevantMemories;
     try {
       relevantMemories = await Promise.race([
-        searchMemories(query, userId.toString()), // Convert to string for Pinecone
+        searchMemories(query, userId),
         new Promise((_, reject) => 
           setTimeout(() => reject(new Error('Search timeout')), 10000)
         ),

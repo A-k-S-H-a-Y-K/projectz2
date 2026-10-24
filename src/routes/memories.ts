@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { createMemorySchema, updateMemorySchema, paginationSchema, memoryFiltersSchema } from '../validations/index.js';
+import { createMemorySchema, updateMemorySchema, listMemoriesQuerySchema } from '../validations/index.js';
 import { db } from '../lib/db.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { storeMemoryEmbedding } from '../services/ai.js';
+import { storeMemoryEmbedding, deleteMemoryEmbedding } from '../services/ai.js';
 import { Prisma } from '@prisma/client';
 import type { MemoryWhereInput } from '../types/index.js';
 
@@ -37,11 +37,10 @@ memories.post('/', zValidator('json', createMemorySchema), async (c) => {
 });
 
 // List memories with pagination and filters
-memories.get('/', zValidator('query', paginationSchema), zValidator('query', memoryFiltersSchema), async (c) => {
+memories.get('/', zValidator('query', listMemoriesQuerySchema), async (c) => {
   try {
     const user = c.get('user');
-    const { page = 1, limit = 10 } = c.req.valid('query');
-    const { search, tags, startDate, endDate } = c.req.valid('query');
+    const { page, limit, search, tags, startDate, endDate } = c.req.valid('query');
 
     const where: MemoryWhereInput = {
       userId: user.userId,
@@ -195,27 +194,10 @@ memories.delete('/:id', async (c) => {
       where: { id },
     });
 
-    // Delete from Pinecone asynchronously
-    const pineconeApiKey = process.env.PINECONE_API_KEY;
-    const pineconeEnvironment = process.env.PINECONE_ENVIRONMENT;
-    const pineconeIndexName = process.env.PINECONE_INDEX_NAME;
-
-    if (pineconeApiKey && pineconeEnvironment && pineconeIndexName) {
-      try {
-        const { Pinecone } = await import('@pinecone-database/pinecone');
-        const pinecone = new Pinecone({ 
-          apiKey: pineconeApiKey,
-          environment: pineconeEnvironment,
-        });
-        const index = pinecone.index(pineconeIndexName);
-        await index.deleteOne(id.toString());
-      } catch (err: unknown) {
-        console.error('Pinecone deletion error:', err);
-        // Don't fail the request if Pinecone deletion fails
-      }
-    } else {
-      console.warn('Pinecone configuration missing, skipping vector deletion');
-    }
+    // Delete embedding asynchronously
+    deleteMemoryEmbedding(id).catch((error: unknown) => {
+      console.error('Failed to delete memory embedding:', error);
+    });
 
     return c.json({ success: true });
   } catch (error: unknown) {

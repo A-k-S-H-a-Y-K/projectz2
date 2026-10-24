@@ -1,3 +1,5 @@
+// Load environment variables before any other module reads them
+import 'dotenv/config'
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
@@ -5,15 +7,11 @@ import { logger } from 'hono/logger'
 import { prettyJSON } from 'hono/pretty-json'
 import { compress } from 'hono/compress'
 import { secureHeaders } from 'hono/secure-headers'
-import * as dotenv from 'dotenv'
 
 import auth from './routes/auth.js'
 import memories from './routes/memories.js'
 import ai from './routes/ai.js'
 import { authMiddleware } from './middleware/auth.js'
-
-// Load environment variables
-dotenv.config()
 
 const app = new Hono()
 

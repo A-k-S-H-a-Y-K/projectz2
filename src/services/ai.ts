@@ -90,6 +90,7 @@
 import { Pinecone } from '@pinecone-database/pinecone';
 import MistralClient from '@mistralai/mistralai';
 import type { Prisma } from '@prisma/client';
+import { db } from '../lib/db.js';
 
 type Memory = Prisma.MemoryGetPayload<{}>;
 
@@ -160,10 +161,15 @@ export async function storeMemoryEmbedding(memory: Memory) {
   console.log(`✅ Memory stored in Pinecone (ID: ${memory.id})`);
 }
 
+// ✅ Remove memory from Pinecone
+export async function deleteMemoryEmbedding(memoryId: number) {
+  await index.deleteOne(memoryId.toString());
+}
+
 // ✅ Semantic search for user memories
 export async function searchMemories(
   query: string,
-  userId: string,
+  userId: number,
   topK: number = 5
 ): Promise<Memory[]> {
   const queryEmbedding = await generateEmbedding(query);
@@ -171,18 +177,19 @@ export async function searchMemories(
   const searchResults = await index.query({
     vector: queryEmbedding,
     topK,
-    filter: { userId },
-    includeMetadata: true,
+    filter: { userId: userId.toString() },
   });
 
-  return searchResults.matches.map((match) => ({
-    id: Number(match.id),
-    userId: Number(match.metadata?.userId),
-    content: match.metadata?.content as string,
-    title: match.metadata?.title as string || null,
-    tags: match.metadata?.tags as string[],
-    createdAt: new Date(), // Pinecone does not store this
-  }));
+  // Load the real records so results have correct dates, reflect later edits,
+  // and can never include another user's memories
+  const ids = searchResults.matches.map((match) => Number(match.id));
+  const memories = await db.memory.findMany({
+    where: { id: { in: ids }, userId },
+  });
+
+  // Keep Pinecone's relevance order
+  const byId = new Map(memories.map((memory) => [memory.id, memory]));
+  return ids.flatMap((id) => byId.get(id) ?? []);
 }
 
 // ✅ Use context to generate an answer with Mistral

@@ -38,8 +38,13 @@ export const generateToken = async (payload: { userId: number; email: string }):
 
   try {
     const jwt = await import('jsonwebtoken');
+    // Accepts plain seconds ("604800") or a duration string ("7d", "12h")
     const options: SignOptions = {
-      expiresIn: jwtExpiresIn ? parseInt(jwtExpiresIn, 10) : 7 * 24 * 60 * 60, // Default to 7 days in seconds
+      expiresIn: !jwtExpiresIn
+        ? '7d'
+        : /^\d+$/.test(jwtExpiresIn)
+          ? Number(jwtExpiresIn)
+          : (jwtExpiresIn as SignOptions['expiresIn']),
     };
     
     return jwt.default.sign(
