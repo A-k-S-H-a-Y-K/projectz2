@@ -3,7 +3,10 @@ import { GoogleGenAI } from '@google/genai';
 import type { Memory } from '@prisma/client';
 import { db } from '../lib/db.js';
 import { looksLikePromptInjection, escapeForPrompt } from '../lib/injection.js';
-import type { ScoredMemory, SearchSource } from '../types/index.js';
+import type { ScoredMemory, SearchMode, SearchSource } from '../types/index.js';
+
+// Search logs help tune relevance during development; the eval script turns them off
+const shouldLogSearch = () => process.env.LOG_SEARCH !== 'false';
 
 if (!process.env.PINECONE_API_KEY || !process.env.PINECONE_INDEX_NAME) {
   throw new Error(
@@ -115,11 +118,13 @@ async function semanticSearch(
   });
 
   // Logged so the relevance cutoff can be tuned from real queries
-  console.log(
-    `Semantic scores: ${searchResults.matches
-      .map((match) => `#${match.id}=${(match.score ?? 0).toFixed(3)}`)
-      .join(', ') || 'no matches'}`
-  );
+  if (shouldLogSearch()) {
+    console.log(
+      `Semantic scores: ${searchResults.matches
+        .map((match) => `#${match.id}=${(match.score ?? 0).toFixed(3)}`)
+        .join(', ') || 'no matches'}`
+    );
+  }
 
   return new Map(
     searchResults.matches
@@ -128,21 +133,31 @@ async function semanticSearch(
   );
 }
 
-// Returns ids of memories containing any of the query's words, best match first.
+// Finds memories containing any of the query's words, best match first.
 // Postgres stems words ("diving" matches "dive") and ignores stop words ("the", "did").
-async function keywordSearch(query: string, userId: number, limit: number): Promise<number[]> {
+// `ranked` holds every match; `allTerms` holds the ids that contain every query word.
+async function keywordSearch(
+  query: string,
+  userId: number,
+  limit: number
+): Promise<{ ranked: number[]; allTerms: Set<number> }> {
   // plainto_tsquery joins words with AND; switching to OR matches memories with any of them
-  const rows = await db.$queryRaw<{ id: number }[]>`
-    SELECT "id"
+  const rows = await db.$queryRaw<{ id: number; all_terms: boolean }[]>`
+    SELECT "id", "searchVector" @@ plainto_tsquery('english', ${query}) AS all_terms
     FROM "Memory",
       to_tsquery('english', replace(plainto_tsquery('english', ${query})::text, '&', '|')) AS q
     WHERE "userId" = ${userId} AND "searchVector" @@ q
     ORDER BY ts_rank_cd("searchVector", q) DESC
     LIMIT ${limit}`;
 
-  const ids = rows.map((row) => row.id);
-  console.log(`Keyword matches: ${ids.map((id) => `#${id}`).join(', ') || 'none'}`);
-  return ids;
+  if (shouldLogSearch()) {
+    const summary = rows.map((row) => `#${row.id}${row.all_terms ? ' (all words)' : ''}`);
+    console.log(`Keyword matches: ${summary.join(', ') || 'none'}`);
+  }
+  return {
+    ranked: rows.map((row) => row.id),
+    allTerms: new Set(rows.filter((row) => row.all_terms).map((row) => row.id)),
+  };
 }
 
 // Reciprocal Rank Fusion: merges ranked lists by summing 1 / (k + rank) for each list an id
@@ -156,19 +171,32 @@ function reciprocalRankFusion(rankedLists: number[][], k = 60): number[] {
   return [...fused.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
 }
 
-// Hybrid search: semantic and keyword search run in parallel and are merged with RRF
+// Hybrid search: semantic and keyword search run in parallel and are merged with RRF.
+// `mode` can restrict it to one of the two, which the evaluation script uses for comparison.
 export async function searchMemories(
   query: string,
   userId: number,
-  topK: number = 5
+  topK: number = 5,
+  mode: SearchMode = 'hybrid'
 ): Promise<ScoredMemory[]> {
   const [semantic, keyword] = await Promise.all([
-    semanticSearch(query, userId, topK),
-    keywordSearch(query, userId, topK),
+    mode === 'keyword' ? new Map<number, number>() : semanticSearch(query, userId, topK),
+    mode === 'semantic'
+      ? { ranked: [], allTerms: new Set<number>() }
+      : keywordSearch(query, userId, topK),
   ]);
 
-  const ids = reciprocalRankFusion([[...semantic.keys()], keyword]).slice(0, topK);
-  const keywordIds = new Set(keyword);
+  // A memory that shares just one word with the question ("blood" in "blood group" vs
+  // "blood pressure") isn't evidence of relevance on its own. In hybrid mode, keyword-only
+  // matches must contain every query word; matches semantic search also found are kept.
+  // Keyword mode keeps all matches, as a plain keyword-search baseline.
+  const keywordRanked =
+    mode === 'hybrid'
+      ? keyword.ranked.filter((id) => semantic.has(id) || keyword.allTerms.has(id))
+      : keyword.ranked;
+
+  const ids = reciprocalRankFusion([[...semantic.keys()], keywordRanked]).slice(0, topK);
+  const keywordIds = new Set(keywordRanked);
 
   // Load the real records so results have correct dates, reflect later edits,
   // and can never include another user's memories

@@ -10,7 +10,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "pinecone:setup": "tsx scripts/setup-pinecone.ts",
-    "stream-demo": "tsx scripts/stream-demo.ts"
+    "stream-demo": "tsx scripts/stream-demo.ts",
+    "eval": "tsx scripts/eval/run.ts"
   },
   "dependencies": {
     "@google/genai": "^2.31.0",

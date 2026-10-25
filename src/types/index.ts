@@ -10,6 +10,7 @@ export interface JWTPayload {
 }
 
 export type SearchSource = 'semantic' | 'keyword';
+export type SearchMode = SearchSource | 'hybrid';
 
 // A memory returned by hybrid search. `score` is its similarity to the query (0 to 1),
 // or null if only keyword search found it. `matchedBy` lists the searches that found it.

@@ -55,7 +55,8 @@ flowchart LR
      memory vectors. Matches below a similarity cutoff (`MIN_RELEVANCE_SCORE`, default 0.55)
      are dropped.
    - **Keyword:** Postgres full-text search finds memories containing any of the question's
-     words, with stemming ("benching" matches "bench") and stop words ignored.
+     words, with stemming ("benching" matches "bench") and stop words ignored. A memory found
+     only by keyword search must contain every word of the question.
 2. The two ranked lists are merged with
    [Reciprocal Rank Fusion](https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf):
    memories ranked highly by either search rise to the top, and those found by both get a boost.
@@ -65,6 +66,38 @@ flowchart LR
 
 Each returned memory includes `matchedBy` (`semantic`, `keyword` or both) and `score`
 (its semantic similarity, or `null` if only keyword search found it).
+
+## Evaluation
+
+`npm run eval` measures retrieval on a fixed dataset ([`scripts/eval/dataset.ts`](scripts/eval/dataset.ts)):
+25 made-up memories, including deliberate look-alikes (two trips, two fitness notes, two family
+health notes), and 24 questions with known answers. These are 12 reworded questions, 6 exact
+names or codes, 2 that need two memories, and 4 that no memory answers. Each question runs
+through semantic-only, keyword-only and hybrid search. It uses a separate user and only
+embedding calls, so it fits the free tiers.
+
+| Mode | Hit@1 | Hit@3 | MRR | Recall@5 | No-answer accuracy | Avg search time |
+|---|---|---|---|---|---|---|
+| semantic | 100% | 100% | 1.00 | 100% | 100% | 1004 ms |
+| keyword | 80% | 90% | 0.85 | 90% | 50% | 187 ms |
+| hybrid | 100% | 100% | 1.00 | 100% | 100% | 993 ms |
+
+*Hit@k: the right memory is in the top k results. MRR: mean of 1 / rank of the first right
+memory. No-answer accuracy: unanswerable questions that correctly return nothing.*
+Full output, including every miss: [`scripts/eval/results.md`](scripts/eval/results.md).
+
+**What the evaluation found:**
+- The first run showed hybrid search at **50% no-answer accuracy**. Keyword matches on a
+  single shared word ("blood" in *"What is my blood group?"* matching a note about blood
+  pressure) were bypassing the semantic relevance cutoff. Hybrid search now keeps a
+  keyword-only match only if it contains every word of the question, and the re-run shows
+  100% with no loss in retrieval.
+- Keyword search alone misses reworded questions (*"What fitness goals do I have?"*), which
+  is what semantic search is for.
+- **Limitations:** the dataset is small and synthetic. Semantic search alone already scores
+  100% on it, so this dataset doesn't show hybrid search improving retrieval; it only shows
+  that hybrid search doesn't make it worse. Testing that would need a larger, harder set of
+  real notes.
 
 ## Prompt-injection protection
 
@@ -196,7 +229,7 @@ src/
 ├── validations/        # Zod request schemas
 └── types/
 prisma/                 # Schema and migrations
-scripts/                # Pinecone index setup, streaming demo
+scripts/                # Pinecone index setup, streaming demo, evaluation
 ```
 
 ## Scripts
@@ -208,6 +241,7 @@ scripts/                # Pinecone index setup, streaming demo
 | `npm start` | Run the compiled server |
 | `npm run pinecone:setup` | Create the Pinecone index |
 | `npm run stream-demo -- "<question>"` | Ask a question and print the streamed answer |
+| `npm run eval` | Run the retrieval evaluation and write `scripts/eval/results.md` |
 | `npm run prisma:studio` | Browse the database in a web UI |
 
 ## Roadmap
@@ -216,6 +250,7 @@ scripts/                # Pinecone index setup, streaming demo
 - [x] Streaming answers
 - [x] Prompt-injection protection
 - [x] Hybrid search (keyword + semantic)
-- [ ] Retrieval and answer-quality evaluation
+- [x] Retrieval evaluation
+- [ ] Answer-quality evaluation (faithfulness of generated answers)
 - [ ] Automated tests and CI
 - [ ] Web frontend and deployment
