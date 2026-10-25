@@ -71,6 +71,26 @@ Content-Type: application/json
   "query": "Where did I go scuba diving?"
 }
 
+### Ask a question no memory can answer (should cite nothing)
+POST {{baseUrl}}/ai/search
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": "What is my mother's birthday?"
+}
+
+### Create a third memory (for comparing search scores)
+POST {{baseUrl}}/memories
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "title": "Gym routine",
+  "content": "Started going to the gym in September. Monday chest and triceps, Wednesday back and biceps, Friday legs. Trying to bench press 60 kg by December.",
+  "tags": ["health", "fitness"]
+}
+
 ### Get one memory (change the id to one from the list)
 GET {{baseUrl}}/memories/1
 Authorization: Bearer {{token}}
@@ -84,6 +104,6 @@ Content-Type: application/json
   "tags": ["travel", "friends", "beach"]
 }
 
-### Delete a memory
-DELETE {{baseUrl}}/memories/2
+### Delete a memory (change the id to one from the list)
+DELETE {{baseUrl}}/memories/4
 Authorization: Bearer {{token}}
