@@ -20,7 +20,9 @@ POST /ai/search
 
 ## Features
 
-- **Semantic search** over your memories, matching by meaning, not just keywords
+- **Hybrid search**: semantic search (Pinecone) and keyword search (Postgres full-text) run in
+  parallel and are merged with Reciprocal Rank Fusion, so questions match by meaning *and*
+  exact names or rare words still match
 - **Grounded answers with citations**: the answer cites its sources as `[1]`, `[2]`, and each
   returned memory says whether it was cited and how similar it is to the question
 - **Relevance filtering**: weak matches are dropped, and when nothing relevant is found the
@@ -38,7 +40,7 @@ POST /ai/search
 ```mermaid
 flowchart LR
     Client -->|REST + JWT| API[Hono API]
-    API -->|users, memories| PG[(Neon Postgres<br/>via Prisma)]
+    API -->|users, memories,<br/>keyword search| PG[(Neon Postgres<br/>via Prisma)]
     API -->|embed text| GE[Gemini<br/>gemini-embedding-001]
     API -->|store / query vectors| PC[(Pinecone)]
     API -->|write answer| GC[Gemini<br/>Flash-Lite]
@@ -48,12 +50,21 @@ flowchart LR
 (a 1024-number vector) and stored in Pinecone with the owner's user ID.
 
 **Asking a question:**
-1. The question is embedded with Gemini, using query mode.
-2. Pinecone returns the closest memory vectors, filtered to the current user. Matches below
-   a similarity cutoff (`MIN_RELEVANCE_SCORE`, default 0.55) are dropped.
+1. Two searches run in parallel, both limited to the current user:
+   - **Semantic:** the question is embedded with Gemini and Pinecone returns the closest
+     memory vectors. Matches below a similarity cutoff (`MIN_RELEVANCE_SCORE`, default 0.55)
+     are dropped.
+   - **Keyword:** Postgres full-text search finds memories containing any of the question's
+     words, with stemming ("benching" matches "bench") and stop words ignored.
+2. The two ranked lists are merged with
+   [Reciprocal Rank Fusion](https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf):
+   memories ranked highly by either search rise to the top, and those found by both get a boost.
 3. The matching memories are loaded from Postgres, so answers always use the latest
    version of each note, with real dates.
 4. Gemini writes an answer using only those numbered memories, citing them as `[n]`.
+
+Each returned memory includes `matchedBy` (`semantic`, `keyword` or both) and `score`
+(its semantic similarity, or `null` if only keyword search found it).
 
 ## Prompt-injection protection
 
@@ -84,7 +95,7 @@ independent layers.
 | Runtime and language | Node.js 24, TypeScript |
 | Web framework | [Hono](https://hono.dev) |
 | Database | PostgreSQL on [Neon](https://neon.tech), [Prisma](https://www.prisma.io) ORM |
-| Vector search | [Pinecone](https://www.pinecone.io) (serverless) |
+| Search | [Pinecone](https://www.pinecone.io) (serverless vectors), Postgres full-text search |
 | AI models | Google Gemini: `gemini-embedding-001`, `gemini-flash-lite-latest` |
 | Validation and auth | Zod, JWT (HS256), bcryptjs |
 
@@ -204,7 +215,7 @@ scripts/                # Pinecone index setup, streaming demo
 - [x] Source citations with relevance filtering
 - [x] Streaming answers
 - [x] Prompt-injection protection
-- [ ] Hybrid search (keyword + semantic)
+- [x] Hybrid search (keyword + semantic)
 - [ ] Retrieval and answer-quality evaluation
 - [ ] Automated tests and CI
 - [ ] Web frontend and deployment

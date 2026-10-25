@@ -133,6 +133,24 @@ Content-Type: application/json
   "query": "Tell me about my Goa trip"
 }
 
+### Hybrid search: an exact name (keyword search should find it)
+POST {{baseUrl}}/ai/search
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": "Brittos"
+}
+
+### Hybrid search: word forms ("benching" should match "bench" via stemming)
+POST {{baseUrl}}/ai/search
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": "How much am I benching?"
+}
+
 ### Get one memory (change the id to one from the list)
 GET {{baseUrl}}/memories/1
 Authorization: Bearer {{token}}

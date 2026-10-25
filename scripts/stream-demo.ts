@@ -34,7 +34,8 @@ console.log(`Q: ${query}\n`);
 type ReferenceSummary = {
   citation: number | null;
   title: string | null;
-  score: number;
+  score: number | null;
+  matchedBy: string[];
   suspicious: boolean;
 };
 let references: ReferenceSummary[] = [];
@@ -54,7 +55,8 @@ function handleMessage(message: string) {
   } else if (event === 'done') {
     console.log('\n\nSources:');
     for (const ref of references) {
-      const title = `${ref.title ?? 'Untitled'} (score ${ref.score.toFixed(2)})`;
+      const score = ref.score === null ? 'keyword only' : `score ${ref.score.toFixed(2)}`;
+      const title = `${ref.title ?? 'Untitled'} (${score}, found by ${ref.matchedBy.join(' + ')})`;
       if (ref.suspicious) {
         console.log(` ! [-] ${title}`);
       } else {

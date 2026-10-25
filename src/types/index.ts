@@ -9,9 +9,16 @@ export interface JWTPayload {
   exp: number;
 }
 
-// A memory returned by semantic search, with its similarity to the query (0 to 1).
+export type SearchSource = 'semantic' | 'keyword';
+
+// A memory returned by hybrid search. `score` is its similarity to the query (0 to 1),
+// or null if only keyword search found it. `matchedBy` lists the searches that found it.
 // `suspicious` memories look like prompt injections and are never shown to the model.
-export type ScoredMemory = Memory & { score: number; suspicious: boolean };
+export type ScoredMemory = Memory & {
+  score: number | null;
+  matchedBy: SearchSource[];
+  suspicious: boolean;
+};
 
 // A memory shown alongside an answer. `citation` is its [n] label in the answer
 // (null for suspicious memories, which the model never saw), and `cited` says

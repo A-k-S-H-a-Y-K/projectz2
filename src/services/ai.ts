@@ -3,7 +3,7 @@ import { GoogleGenAI } from '@google/genai';
 import type { Memory } from '@prisma/client';
 import { db } from '../lib/db.js';
 import { looksLikePromptInjection, escapeForPrompt } from '../lib/injection.js';
-import type { ScoredMemory } from '../types/index.js';
+import type { ScoredMemory, SearchSource } from '../types/index.js';
 
 if (!process.env.PINECONE_API_KEY || !process.env.PINECONE_INDEX_NAME) {
   throw new Error(
@@ -99,11 +99,13 @@ export async function deleteMemoryEmbedding(memoryId: number) {
   await index.deleteOne({ id: memoryId.toString() });
 }
 
-export async function searchMemories(
+// Returns memory ids most similar in meaning to the query, with their cosine similarity,
+// most similar first. Matches below MIN_RELEVANCE_SCORE are dropped.
+async function semanticSearch(
   query: string,
   userId: number,
-  topK: number = 5
-): Promise<ScoredMemory[]> {
+  topK: number
+): Promise<Map<number, number>> {
   const queryEmbedding = await generateEmbedding(query, 'RETRIEVAL_QUERY');
 
   const searchResults = await index.query({
@@ -114,35 +116,83 @@ export async function searchMemories(
 
   // Logged so the relevance cutoff can be tuned from real queries
   console.log(
-    `Search scores: ${searchResults.matches
+    `Semantic scores: ${searchResults.matches
       .map((match) => `#${match.id}=${(match.score ?? 0).toFixed(3)}`)
       .join(', ') || 'no matches'}`
   );
 
-  const scores = new Map(
+  return new Map(
     searchResults.matches
       .filter((match) => (match.score ?? 0) >= MIN_RELEVANCE_SCORE)
       .map((match) => [Number(match.id), match.score ?? 0])
   );
+}
+
+// Returns ids of memories containing any of the query's words, best match first.
+// Postgres stems words ("diving" matches "dive") and ignores stop words ("the", "did").
+async function keywordSearch(query: string, userId: number, limit: number): Promise<number[]> {
+  // plainto_tsquery joins words with AND; switching to OR matches memories with any of them
+  const rows = await db.$queryRaw<{ id: number }[]>`
+    SELECT "id"
+    FROM "Memory",
+      to_tsquery('english', replace(plainto_tsquery('english', ${query})::text, '&', '|')) AS q
+    WHERE "userId" = ${userId} AND "searchVector" @@ q
+    ORDER BY ts_rank_cd("searchVector", q) DESC
+    LIMIT ${limit}`;
+
+  const ids = rows.map((row) => row.id);
+  console.log(`Keyword matches: ${ids.map((id) => `#${id}`).join(', ') || 'none'}`);
+  return ids;
+}
+
+// Reciprocal Rank Fusion: merges ranked lists by summing 1 / (k + rank) for each list an id
+// appears in. Items ranked well in either list rise to the top, and items in both get a boost.
+// k = 60 is the standard constant from the original RRF paper.
+function reciprocalRankFusion(rankedLists: number[][], k = 60): number[] {
+  const fused = new Map<number, number>();
+  for (const list of rankedLists) {
+    list.forEach((id, rank) => fused.set(id, (fused.get(id) ?? 0) + 1 / (k + rank + 1)));
+  }
+  return [...fused.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
+}
+
+// Hybrid search: semantic and keyword search run in parallel and are merged with RRF
+export async function searchMemories(
+  query: string,
+  userId: number,
+  topK: number = 5
+): Promise<ScoredMemory[]> {
+  const [semantic, keyword] = await Promise.all([
+    semanticSearch(query, userId, topK),
+    keywordSearch(query, userId, topK),
+  ]);
+
+  const ids = reciprocalRankFusion([[...semantic.keys()], keyword]).slice(0, topK);
+  const keywordIds = new Set(keyword);
 
   // Load the real records so results have correct dates, reflect later edits,
   // and can never include another user's memories
-  const memories = await db.memory.findMany({
-    where: { id: { in: [...scores.keys()] }, userId },
-  });
+  const memories = await db.memory.findMany({ where: { id: { in: ids }, userId } });
+  const byId = new Map(memories.map((memory) => [memory.id, memory]));
 
-  // Most relevant first
-  return memories
-    .map((memory) => {
-      const suspicious = looksLikePromptInjection(
-        [memory.title ?? '', memory.content, memory.tags.join(' ')].join('\n')
-      );
-      if (suspicious) {
-        console.warn(`Memory ${memory.id} looks like a prompt injection and was withheld from the model`);
-      }
-      return { ...memory, score: scores.get(memory.id) ?? 0, suspicious };
-    })
-    .sort((a, b) => b.score - a.score);
+  // Keep the fused order
+  return ids.flatMap((id) => {
+    const memory = byId.get(id);
+    if (!memory) return [];
+
+    const matchedBy: SearchSource[] = [];
+    if (semantic.has(id)) matchedBy.push('semantic');
+    if (keywordIds.has(id)) matchedBy.push('keyword');
+
+    const suspicious = looksLikePromptInjection(
+      [memory.title ?? '', memory.content, memory.tags.join(' ')].join('\n')
+    );
+    if (suspicious) {
+      console.warn(`Memory ${memory.id} looks like a prompt injection and was withheld from the model`);
+    }
+
+    return [{ ...memory, score: semantic.get(id) ?? null, matchedBy, suspicious }];
+  });
 }
 
 // Kept separate from the memories so text inside a memory can't rewrite the rules
