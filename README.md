@@ -11,15 +11,21 @@ POST /ai/search
 ```
 ```json
 {
-  "answer": "Based on your memories, you went scuba diving at Grande Island.",
-  "references": [{ "id": 1, "title": "Trip to Goa", "createdAt": "2026-10-24T19:24:11.925Z", ... }]
+  "answer": "You went scuba diving at Grande Island [1].",
+  "references": [
+    { "id": 6, "title": "Trip to Goa", "score": 0.644, "citation": 1, "cited": true, ... }
+  ]
 }
 ```
 
 ## Features
 
 - **Semantic search** over your memories, matching by meaning, not just keywords
-- **Grounded answers** generated from the matching memories, returned with the memories used
+- **Grounded answers with citations**: the answer cites its sources as `[1]`, `[2]`, and each
+  returned memory says whether it was cited and how similar it is to the question
+- **Relevance filtering**: weak matches are dropped, and when nothing relevant is found the
+  LLM isn't called at all
+- **Streaming answers** over Server-Sent Events, with sources sent before the answer starts
 - **Memory management**: create, edit, delete, paginate, filter by tags, date range or text
 - **JWT authentication** with bcrypt password hashing; every query is scoped to the signed-in user
 - **Input validation** with size limits on every request (Zod)
@@ -41,10 +47,11 @@ flowchart LR
 
 **Asking a question:**
 1. The question is embedded with Gemini, using query mode.
-2. Pinecone returns the closest memory vectors, filtered to the current user.
+2. Pinecone returns the closest memory vectors, filtered to the current user. Matches below
+   a similarity cutoff (`MIN_RELEVANCE_SCORE`, default 0.55) are dropped.
 3. The matching memories are loaded from Postgres, so answers always use the latest
    version of each note, with real dates.
-4. Gemini writes an answer using only those memories as context.
+4. Gemini writes an answer using only those numbered memories, citing them as `[n]`.
 
 ## Tech stack
 
@@ -87,8 +94,8 @@ cp .env.example .env
 | `PINECONE_API_KEY` | Pinecone console → API Keys |
 | `GEMINI_API_KEY` | Google AI Studio → Get API key |
 
-`PINECONE_INDEX_NAME`, `JWT_EXPIRES_IN`, `GEMINI_CHAT_MODEL`, `PORT` and `CORS_ORIGIN`
-have working defaults in `.env.example`.
+`PINECONE_INDEX_NAME`, `JWT_EXPIRES_IN`, `GEMINI_CHAT_MODEL`, `MIN_RELEVANCE_SCORE`, `PORT`
+and `CORS_ORIGIN` have working defaults in `.env.example`.
 
 ### 3. Create the database tables and the vector index
 
@@ -122,6 +129,21 @@ using the token returned by sign-up or login.
 | `PUT` | `/memories/:id` | Update a memory |
 | `DELETE` | `/memories/:id` | Delete a memory |
 | `POST` | `/ai/search` | Ask a question → `answer` + `references` |
+| `POST` | `/ai/search/stream` | Same, streamed as Server-Sent Events (see below) |
+
+### Streaming
+
+`/ai/search/stream` takes the same body as `/ai/search` and sends these events:
+
+| Event | Data |
+|---|---|
+| `references` | The matching memories, sent before the answer starts |
+| `token` | `{ "text": "..." }`, one piece of the answer |
+| `done` | `{ "cited": [1] }`, the citation numbers used in the answer |
+| `error` | `{ "error": "..." }`, sent instead of `done` if generation fails |
+
+To watch a streamed answer in the terminal, start the server and run
+`npm run stream-demo -- "Where did I go scuba diving?"`.
 
 [`requests.http`](requests.http) has a ready-made example of every request. Open it in VS Code
 with the [REST Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client)
@@ -139,7 +161,7 @@ src/
 ├── validations/        # Zod request schemas
 └── types/
 prisma/                 # Schema and migrations
-scripts/                # One-time setup (Pinecone index)
+scripts/                # Pinecone index setup, streaming demo
 ```
 
 ## Scripts
@@ -150,12 +172,13 @@ scripts/                # One-time setup (Pinecone index)
 | `npm run build` | Compile TypeScript to `dist/` |
 | `npm start` | Run the compiled server |
 | `npm run pinecone:setup` | Create the Pinecone index |
+| `npm run stream-demo -- "<question>"` | Ask a question and print the streamed answer |
 | `npm run prisma:studio` | Browse the database in a web UI |
 
 ## Roadmap
 
-- [ ] Source citations: keep only memories above a relevance threshold
-- [ ] Streaming answers
+- [x] Source citations with relevance filtering
+- [x] Streaming answers
 - [ ] Hybrid search (keyword + semantic)
 - [ ] Prompt-injection protection
 - [ ] Retrieval and answer-quality evaluation

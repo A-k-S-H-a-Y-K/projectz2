@@ -71,6 +71,16 @@ Content-Type: application/json
   "query": "Where did I go scuba diving?"
 }
 
+### Ask a question with a streamed answer (Server-Sent Events)
+# REST Client shows the events once the stream ends; use "npm run stream-demo" to watch it live
+POST {{baseUrl}}/ai/search/stream
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "query": "Where did I go scuba diving?"
+}
+
 ### Ask a question no memory can answer (should cite nothing)
 POST {{baseUrl}}/ai/search
 Authorization: Bearer {{token}}

@@ -137,7 +137,7 @@ export async function searchMemories(
 }
 
 // Memories are numbered from 1 in the order given, so the answer can cite them as [n]
-export async function generateAnswer(query: string, memories: Memory[]): Promise<string> {
+function buildAnswerPrompt(query: string, memories: Memory[]): string {
   const context = memories
     .map(
       (m, i) =>
@@ -148,7 +148,7 @@ Content: ${m.content}`
     )
     .join('\n\n');
 
-  const prompt = `You answer questions using only the user's saved memories below.
+  return `You answer questions using only the user's saved memories below.
 Each memory is numbered. After each fact you use, cite the memory it came from in square brackets, like [1] or [1][2].
 If the memories don't contain the answer, say you couldn't find it in their memories and don't cite anything.
 
@@ -156,13 +156,29 @@ Memories:
 ${context}
 
 Question: ${query}`;
+}
 
+export async function generateAnswer(query: string, memories: Memory[]): Promise<string> {
   const response = await gemini.models.generateContent({
     model: CHAT_MODEL,
-    contents: prompt,
+    contents: buildAnswerPrompt(query, memories),
   });
 
   return response.text ?? '';
+}
+
+// Same as generateAnswer, but yields the answer in pieces as the model writes it
+export async function* streamAnswer(query: string, memories: Memory[]): AsyncGenerator<string> {
+  const stream = await gemini.models.generateContentStream({
+    model: CHAT_MODEL,
+    contents: buildAnswerPrompt(query, memories),
+  });
+
+  for await (const chunk of stream) {
+    if (chunk.text) {
+      yield chunk.text;
+    }
+  }
 }
 
 // Returns the memory numbers cited in an answer, e.g. "... [1][3]" -> {1, 3}
