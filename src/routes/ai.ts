@@ -20,9 +20,21 @@ const ai = new Hono();
 
 ai.use('/*', authMiddleware);
 
-// Numbers memories in the order they were given to the model, matching its [n] citations
-const toReferences = (memories: ScoredMemory[], cited: Set<number>): Reference[] =>
-  memories.map((memory, i) => ({ ...memory, citation: i + 1, cited: cited.has(i + 1) }));
+// Only memories that passed the injection check are shown to the model
+const usableMemories = (memories: ScoredMemory[]) => memories.filter((memory) => !memory.suspicious);
+
+// Usable memories are numbered 1..n in the order given to the model, matching its [n]
+// citations. Suspicious ones are still listed so a client can warn about them.
+const toReferences = (memories: ScoredMemory[], cited: Set<number>): Reference[] => {
+  let citation = 0;
+  return memories.map((memory) => {
+    if (memory.suspicious) {
+      return { ...memory, citation: null, cited: false };
+    }
+    citation += 1;
+    return { ...memory, citation, cited: cited.has(citation) };
+  });
+};
 
 ai.post('/search', zValidator('json', searchSchema), async (c) => {
   const { userId } = c.get('user');
@@ -35,13 +47,17 @@ ai.post('/search', zValidator('json', searchSchema), async (c) => {
   );
 
   // Skip the LLM call entirely when nothing relevant was found
-  if (memories.length === 0) {
-    const response: SearchResponse = { answer: NO_MATCH_ANSWER, references: [] };
+  const usable = usableMemories(memories);
+  if (usable.length === 0) {
+    const response: SearchResponse = {
+      answer: NO_MATCH_ANSWER,
+      references: toReferences(memories, new Set()),
+    };
     return c.json(response);
   }
 
   const answer = await withTimeout(
-    generateAnswer(query, memories),
+    generateAnswer(query, usable),
     ANSWER_TIMEOUT_MS,
     'Answer generation'
   );
@@ -78,11 +94,12 @@ ai.post('/search/stream', zValidator('json', searchSchema), async (c) => {
       });
 
       let answer = '';
-      if (memories.length === 0) {
+      const usable = usableMemories(memories);
+      if (usable.length === 0) {
         answer = NO_MATCH_ANSWER;
         await stream.writeSSE({ event: 'token', data: JSON.stringify({ text: answer }) });
       } else {
-        for await (const text of streamAnswer(query, memories)) {
+        for await (const text of streamAnswer(query, usable)) {
           answer += text;
           await stream.writeSSE({ event: 'token', data: JSON.stringify({ text }) });
         }

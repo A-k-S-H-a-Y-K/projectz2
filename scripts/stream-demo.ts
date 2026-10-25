@@ -31,7 +31,12 @@ if (!response.ok || !response.body) {
 
 console.log(`Q: ${query}\n`);
 
-type ReferenceSummary = { citation: number; title: string | null; score: number };
+type ReferenceSummary = {
+  citation: number | null;
+  title: string | null;
+  score: number;
+  suspicious: boolean;
+};
 let references: ReferenceSummary[] = [];
 
 // SSE messages are separated by a blank line; each has "event:" and "data:" lines
@@ -49,11 +54,16 @@ function handleMessage(message: string) {
   } else if (event === 'done') {
     console.log('\n\nSources:');
     for (const ref of references) {
-      const mark = payload.cited.includes(ref.citation) ? '*' : ' ';
-      console.log(` ${mark} [${ref.citation}] ${ref.title ?? 'Untitled'} (score ${ref.score.toFixed(2)})`);
+      const title = `${ref.title ?? 'Untitled'} (score ${ref.score.toFixed(2)})`;
+      if (ref.suspicious) {
+        console.log(` ! [-] ${title}`);
+      } else {
+        const mark = payload.cited.includes(ref.citation) ? '*' : ' ';
+        console.log(` ${mark} [${ref.citation}] ${title}`);
+      }
     }
     if (references.length === 0) console.log('   none');
-    console.log('\n * = cited in the answer');
+    console.log('\n * = cited in the answer, ! = withheld as a possible prompt injection');
   } else if (event === 'error') {
     console.error(`\nError: ${payload.error}`);
   }
