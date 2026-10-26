@@ -30,9 +30,10 @@ const EMBEDDING_MODEL = 'gemini-embedding-001';
 const EMBEDDING_DIMENSION = 1024;
 const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || 'gemini-flash-lite-latest';
 
-// Search matches below this cosine similarity are treated as unrelated.
-// In testing, unrelated memories scored about 0.43-0.47 and relevant ones above 0.6.
-const MIN_RELEVANCE_SCORE = Number(process.env.MIN_RELEVANCE_SCORE ?? 0.55);
+// Search matches below this cosine similarity are treated as unrelated. 0.55 was the only
+// cutoff in the evaluation sweep with 100% Hit@1, Recall@5 and no-answer accuracy (see
+// scripts/eval/results.md). Read on every search so the evaluation script can compare cutoffs.
+const minRelevanceScore = () => Number(process.env.MIN_RELEVANCE_SCORE ?? 0.55);
 
 // Gemini tunes embeddings differently for stored documents and search queries
 type EmbeddingTask = 'RETRIEVAL_DOCUMENT' | 'RETRIEVAL_QUERY';
@@ -105,7 +106,7 @@ export async function deleteMemoryEmbedding(memoryId: number) {
 }
 
 // Returns memory ids most similar in meaning to the query, with their cosine similarity,
-// most similar first. Matches below MIN_RELEVANCE_SCORE are dropped.
+// most similar first. Matches below the relevance cutoff are dropped.
 async function semanticSearch(
   query: string,
   userId: number,
@@ -130,7 +131,7 @@ async function semanticSearch(
 
   return new Map(
     searchResults.matches
-      .filter((match) => (match.score ?? 0) >= MIN_RELEVANCE_SCORE)
+      .filter((match) => (match.score ?? 0) >= minRelevanceScore())
       .map((match) => [Number(match.id), match.score ?? 0])
   );
 }
