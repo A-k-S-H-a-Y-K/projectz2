@@ -1,11 +1,13 @@
-# Memory Assistant API
+# Memory Assistant
 
 [![CI](https://github.com/A-k-S-H-a-Y-K/projectz2/actions/workflows/ci.yml/badge.svg)](https://github.com/A-k-S-H-a-Y-K/projectz2/actions/workflows/ci.yml)
 
-A backend for a personal AI assistant that answers questions using **your own notes**.
-Save memories (notes with a title and tags), then ask questions in plain English. The API
-finds the most relevant memories by meaning and has an LLM write an answer grounded in them.
+A personal AI assistant that answers questions using **your own notes**. Save memories
+(notes with a title and tags), then ask questions in plain English. The API finds the most
+relevant memories by meaning and has an LLM write an answer grounded in them, with citations.
 This pattern is called retrieval-augmented generation (RAG).
+
+The repo contains the API (Hono, TypeScript) and a React frontend in [`web/`](web).
 
 ```http
 POST /ai/search
@@ -210,7 +212,24 @@ npm run dev
 
 The API runs at `http://localhost:3001`. Check it with `GET /health`.
 
-### Or run with Docker
+### 5. Run the frontend
+
+In a second terminal, with the API running:
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`. In development, Vite forwards `/api/*` to the API on port 3001.
+For a deployed frontend, set `VITE_API_URL` to the API's URL at build time.
+
+The frontend has a one-click demo login, a memories page (search, tag filter, add, delete)
+and an ask page that streams the answer, shows its sources, and highlights a source when
+you click its citation number.
+
+### Or run the API with Docker
 
 ```bash
 docker build -t memory-assistant .
@@ -295,6 +314,7 @@ src/
 prisma/                 # Schema and migrations
 scripts/                # Pinecone index setup, streaming demo, evaluation
 tests/                  # Unit and route tests (Vitest)
+web/                    # React + Vite frontend
 ```
 
 ## Scripts
@@ -320,6 +340,7 @@ tests/                  # Unit and route tests (Vitest)
 - [x] Retrieval evaluation
 - [ ] Answer-quality evaluation (faithfulness of generated answers)
 - [x] Automated tests
-- [x] Continuous integration (GitHub Actions: type-check, tests and Docker build on every push and PR)
+- [x] Continuous integration (GitHub Actions: API type-check and tests, frontend build and Docker build on every push and PR)
 - [x] Docker image
-- [ ] Web frontend and deployment
+- [x] Web frontend
+- [ ] Deployment
