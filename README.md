@@ -1,5 +1,7 @@
 # Memory Assistant API
 
+[![CI](https://github.com/A-k-S-H-a-Y-K/projectz2/actions/workflows/ci.yml/badge.svg)](https://github.com/A-k-S-H-a-Y-K/projectz2/actions/workflows/ci.yml)
+
 A backend for a personal AI assistant that answers questions using **your own notes**.
 Save memories (notes with a title and tags), then ask questions in plain English. The API
 finds the most relevant memories by meaning and has an LLM write an answer grounded in them.
@@ -180,6 +182,18 @@ npm run dev
 
 The API runs at `http://localhost:3001`. Check it with `GET /health`.
 
+### Or run with Docker
+
+```bash
+docker build -t memory-assistant .
+docker run --env-file .env -p 3001:3001 memory-assistant
+```
+
+The image contains only production dependencies and compiled code. Settings and secrets are
+read from environment variables when the container starts, and `.env` is never copied into
+the image. Run migrations and `npm run pinecone:setup` from your machine first, as above.
+CI builds the image on every push to check that it still builds.
+
 ## API
 
 All `/memories` and `/ai` routes need an `Authorization: Bearer <token>` header,
@@ -217,19 +231,39 @@ To watch a streamed answer in the terminal, start the server and run
 with the [REST Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client)
 extension and click **Send Request**.
 
+## Tests
+
+```bash
+npm test
+```
+
+52 tests run in a few seconds with [Vitest](https://vitest.dev), with no network access or
+API keys needed. GitHub Actions runs the type-check and tests on every push and pull request.
+
+- **Unit tests** for the prompt-injection checker, citation parsing, Reciprocal Rank Fusion,
+  token lifetimes, password hashing and request validation, including regression tests for
+  earlier bugs (`JWT_EXPIRES_IN=7d` once meant 7 seconds; `?page=2` was rejected).
+- **Route tests** that send real HTTP requests to the app with the database and AI services
+  mocked. They check that requests without a valid token get 401, that users can only reach
+  their own memories, that the model isn't called when nothing relevant is found, that
+  suspicious memories are never sent to the model, and that 500 responses don't leak
+  internal error details.
+
 ## Project structure
 
 ```
 src/
-├── index.ts            # App setup, middleware, routes
+├── index.ts            # Starts the server
+├── app.ts              # App setup, middleware, routes
 ├── routes/             # auth, memories, ai
 ├── services/ai.ts      # Embeddings, vector search, answer generation
 ├── middleware/auth.ts  # JWT verification
-├── lib/                # Prisma client, auth, timeout and prompt-injection helpers
+├── lib/                # Prisma client, auth, citations, rank fusion, prompt-injection helpers
 ├── validations/        # Zod request schemas
 └── types/
 prisma/                 # Schema and migrations
 scripts/                # Pinecone index setup, streaming demo, evaluation
+tests/                  # Unit and route tests (Vitest)
 ```
 
 ## Scripts
@@ -242,6 +276,7 @@ scripts/                # Pinecone index setup, streaming demo, evaluation
 | `npm run pinecone:setup` | Create the Pinecone index |
 | `npm run stream-demo -- "<question>"` | Ask a question and print the streamed answer |
 | `npm run eval` | Run the retrieval evaluation and write `scripts/eval/results.md` |
+| `npm test` | Run the test suite (`npm run test:watch` re-runs on changes) |
 | `npm run prisma:studio` | Browse the database in a web UI |
 
 ## Roadmap
@@ -252,5 +287,7 @@ scripts/                # Pinecone index setup, streaming demo, evaluation
 - [x] Hybrid search (keyword + semantic)
 - [x] Retrieval evaluation
 - [ ] Answer-quality evaluation (faithfulness of generated answers)
-- [ ] Automated tests and CI
+- [x] Automated tests
+- [x] Continuous integration (GitHub Actions: type-check, tests and Docker build on every push and PR)
+- [x] Docker image
 - [ ] Web frontend and deployment

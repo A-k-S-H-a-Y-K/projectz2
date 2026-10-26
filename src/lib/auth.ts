@@ -8,7 +8,7 @@ const DEFAULT_TOKEN_LIFETIME = '7d';
 const SECONDS_PER_UNIT: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
 
 // Parses "604800", "30m", "12h" or "7d" into seconds
-function parseDuration(value: string): number {
+export function parseDuration(value: string): number {
   const match = /^(\d+)([smhd]?)$/.exec(value.trim());
   if (!match) {
     throw new Error(`Invalid JWT_EXPIRES_IN value "${value}". Use seconds or a duration like "7d".`);
