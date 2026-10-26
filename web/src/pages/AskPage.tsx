@@ -108,19 +108,66 @@ export default function AskPage({ demo }: { demo: boolean }) {
       )}
 
       {references.length > 0 && (
-        <section className="stack">
-          <h2 className="section-title">Sources</h2>
-          {references.map((ref) => (
-            <SourceCard
-              key={ref.id}
-              reference={ref}
-              cited={ref.citation !== null && cited.includes(ref.citation)}
-              active={ref.citation !== null && ref.citation === activeCitation}
-            />
-          ))}
-        </section>
+        <Sources
+          references={references}
+          cited={cited}
+          activeCitation={activeCitation}
+          // Until the answer is finished, it isn't known which sources it will cite
+          finished={status === 'done'}
+        />
       )}
     </div>
+  );
+}
+
+// Once the answer is finished, sources it cited are listed first and the rest are
+// collapsed under "Other related notes", so the answer's evidence stands out.
+function Sources({
+  references,
+  cited,
+  activeCitation,
+  finished,
+}: {
+  references: Reference[];
+  cited: number[];
+  activeCitation: number | null;
+  finished: boolean;
+}) {
+  const isCited = (ref: Reference) => ref.citation !== null && cited.includes(ref.citation);
+  const card = (ref: Reference) => (
+    <SourceCard
+      key={ref.id}
+      reference={ref}
+      cited={isCited(ref)}
+      active={ref.citation !== null && ref.citation === activeCitation}
+    />
+  );
+
+  if (!finished) {
+    return (
+      <section className="stack">
+        <h2 className="section-title">Sources</h2>
+        {references.map(card)}
+      </section>
+    );
+  }
+
+  const used = references.filter(isCited);
+  const others = references.filter((ref) => !isCited(ref));
+
+  return (
+    <section className="stack">
+      {used.length > 0 && <h2 className="section-title">Sources</h2>}
+      {used.map(card)}
+      {others.length > 0 && (
+        <details className="others">
+          <summary className="section-title">
+            {used.length > 0 ? 'Other related notes' : 'Related notes'} ({others.length})
+          </summary>
+          <div className="stack">{others.map(card)}</div>
+        </details>
+      )}
+    </section>
   );
 }
 

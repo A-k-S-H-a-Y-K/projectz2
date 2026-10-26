@@ -338,6 +338,15 @@ button.danger {
   opacity: 0.8;
 }
 
+.others summary {
+  cursor: pointer;
+  margin-bottom: 0.9rem;
+}
+
+.others:not([open]) summary {
+  margin-bottom: 0;
+}
+
 .source-header {
   display: flex;
   flex-wrap: wrap;
