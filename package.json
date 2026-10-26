@@ -12,6 +12,7 @@
     "pinecone:setup": "tsx scripts/setup-pinecone.ts",
     "stream-demo": "tsx scripts/stream-demo.ts",
     "eval": "tsx scripts/eval/run.ts",
+    "demo:seed": "tsx scripts/seed-demo.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

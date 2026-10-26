@@ -5,6 +5,8 @@ export type SafeUser = Omit<User, 'passwordHash'>;
 export interface JWTPayload {
   userId: number;
   email: string;
+  // True for the shared, read-only demo account
+  demo?: boolean;
   iat: number;
   exp: number;
 }
@@ -34,4 +36,5 @@ export interface SearchResponse {
 export interface AuthResponse {
   user: SafeUser;
   token: string;
+  demo: boolean;
 }

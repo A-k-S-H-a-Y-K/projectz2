@@ -8,12 +8,12 @@ import {
   memoryIdParamSchema,
 } from '../validations/index.js';
 import { db } from '../lib/db.js';
-import { authMiddleware } from '../middleware/auth.js';
+import { authMiddleware, rejectDemoWrites } from '../middleware/auth.js';
 import { storeMemoryEmbedding, deleteMemoryEmbedding } from '../services/ai.js';
 
 const memories = new Hono();
 
-memories.use('/*', authMiddleware);
+memories.use('/*', authMiddleware, rejectDemoWrites);
 
 // Returns the memory only if it belongs to the given user
 const findOwnMemory = (id: number, userId: number) =>

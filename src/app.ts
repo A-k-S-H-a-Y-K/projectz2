@@ -8,6 +8,7 @@ import { secureHeaders } from 'hono/secure-headers'
 import auth from './routes/auth.js'
 import memories from './routes/memories.js'
 import ai from './routes/ai.js'
+import { TimeoutError } from './lib/timeout.js'
 
 // Comma-separated list of frontend URLs allowed to call the API
 const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000')
@@ -36,6 +37,9 @@ app.get('/health', (c) => c.json({ status: 'ok' }))
 // Error handling
 app.onError((err, c) => {
   console.error(err)
+  if (err instanceof TimeoutError) {
+    return c.json({ error: 'The AI service took too long to respond. Please try again.' }, 504)
+  }
   return c.json({ error: 'Internal Server Error' }, 500)
 })
 

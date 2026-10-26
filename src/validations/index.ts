@@ -4,6 +4,8 @@ export const signupSchema = z.object({
   email: z.email(),
   name: z.string().min(2).max(50),
   password: z.string().min(8).max(128),
+  // Required when SIGNUP_MODE is "invite"
+  inviteCode: z.string().max(100).optional(),
 });
 
 export const loginSchema = z.object({
