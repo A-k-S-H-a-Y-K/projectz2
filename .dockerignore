@@ -9,4 +9,5 @@ dist
 .github
 tests
 scripts
+web
 *.log
