@@ -28,7 +28,12 @@ POST /ai/search
   parallel and are merged with Reciprocal Rank Fusion, so questions match by meaning *and*
   exact names or rare words still match
 - **Grounded answers with citations**: the answer cites its sources as `[1]`, `[2]`, and each
-  returned memory says whether it was cited and how similar it is to the question
+  returned memory says whether it was cited and how similar it is to the question. Answers are
+  written in a friendly tone, but may only use facts from the memories.
+- **Optional general knowledge**: with `includeGeneralKnowledge`, the answer can add background
+  information after a separate `General knowledge:` line. That part is never cited, never
+  presented as something the user saved, and never guesses personal facts. The frontend shows it
+  in its own box labelled "not from your notes".
 - **Relevance filtering**: weak matches are dropped, and when nothing relevant is found the
   LLM isn't called at all
 - **Streaming answers** over Server-Sent Events, with sources sent before the answer starts
@@ -259,7 +264,7 @@ using the token returned by sign-up or login.
 | `GET` | `/memories/:id` | Get one memory |
 | `PUT` | `/memories/:id` | Update a memory |
 | `DELETE` | `/memories/:id` | Delete a memory |
-| `POST` | `/ai/search` | Ask a question → `answer` + `references` |
+| `POST` | `/ai/search` | Ask a question (`query`, optional `includeGeneralKnowledge`) → `answer` + `references` |
 | `POST` | `/ai/search/stream` | Same, streamed as Server-Sent Events (see below) |
 
 ### Streaming
@@ -286,7 +291,7 @@ extension and click **Send Request**.
 npm test
 ```
 
-63 tests run in a few seconds with [Vitest](https://vitest.dev), with no network access or
+69 tests run in a few seconds with [Vitest](https://vitest.dev), with no network access or
 API keys needed. GitHub Actions runs the type-check and tests on every push and pull request.
 
 - **Unit tests** for the prompt-injection checker, citation parsing, Reciprocal Rank Fusion,

@@ -151,6 +151,7 @@ export const deleteMemory = (id: number) => send(`/memories/${id}`, { method: 'D
 // in pieces, then the citation numbers the answer used.
 export async function askStream(
   query: string,
+  includeGeneralKnowledge: boolean,
   handlers: {
     onReferences: (references: Reference[]) => void;
     onToken: (text: string) => void;
@@ -160,7 +161,7 @@ export async function askStream(
 ) {
   const res = await send('/ai/search/stream', {
     method: 'POST',
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ query, includeGeneralKnowledge }),
     signal,
   });
   const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();

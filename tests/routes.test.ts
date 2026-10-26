@@ -244,11 +244,45 @@ describe('POST /ai/search', () => {
     const res = await ask('Tell me about my Goa trip');
     const body = await res.json();
 
-    expect(generateAnswer).toHaveBeenCalledWith('Tell me about my Goa trip', [genuine]);
+    expect(generateAnswer).toHaveBeenCalledWith('Tell me about my Goa trip', [genuine], {
+      includeGeneralKnowledge: false,
+    });
     expect(body.references).toMatchObject([
       { id: 1, citation: 1, cited: true, suspicious: false },
       { id: 2, citation: null, cited: false, suspicious: true },
     ]);
+  });
+
+  it('answers from general knowledge when asked, even if no memory matches', async () => {
+    vi.mocked(searchMemories).mockResolvedValue([]);
+    vi.mocked(generateAnswer).mockResolvedValue(
+      "That isn't in your notes.\n\nGeneral knowledge:\nCold brew is coffee steeped in cold water."
+    );
+
+    const res = await app.request('/ai/search', {
+      ...json({ query: 'How do I make cold brew?', includeGeneralKnowledge: true }),
+      headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    });
+
+    expect(res.status).toBe(200);
+    expect(generateAnswer).toHaveBeenCalledWith('How do I make cold brew?', [], {
+      includeGeneralKnowledge: true,
+    });
+  });
+
+  it("doesn't count citations inside the general-knowledge part", async () => {
+    vi.mocked(searchMemories).mockResolvedValue([scoredMemory({ id: 1 }), scoredMemory({ id: 2 })]);
+    vi.mocked(generateAnswer).mockResolvedValue(
+      'You went to Goa in March [1].\n\nGeneral knowledge:\nGoa is famous for its beaches [2].'
+    );
+
+    const res = await app.request('/ai/search', {
+      ...json({ query: 'Tell me about Goa', includeGeneralKnowledge: true }),
+      headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    });
+    const body = await res.json();
+
+    expect(body.references.map((r: { cited: boolean }) => r.cited)).toEqual([true, false]);
   });
 
   it("doesn't call the model when every match is suspicious", async () => {

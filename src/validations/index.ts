@@ -28,6 +28,8 @@ export const memoryIdParamSchema = z.object({
 
 export const searchSchema = z.object({
   query: z.string().min(1).max(1_000),
+  // Lets the answer add clearly labelled general knowledge alongside the memories
+  includeGeneralKnowledge: z.boolean().default(false),
 });
 
 // Query-string values always arrive as strings, and a repeated key

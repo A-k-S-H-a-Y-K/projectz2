@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { askStream, type Reference } from '../api';
-import { formatDate } from '../format';
+import { formatDate, splitAnswer } from '../format';
 
 // Questions that match the demo account's sample notes
 const DEMO_QUESTIONS = [
@@ -20,6 +20,7 @@ export default function AskPage({ demo }: { demo: boolean }) {
   const [cited, setCited] = useState<number[]>([]);
   const [activeCitation, setActiveCitation] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [includeGeneral, setIncludeGeneral] = useState(false);
   const controller = useRef<AbortController | null>(null);
 
   // Stop any answer still streaming when leaving the page
@@ -41,6 +42,7 @@ export default function AskPage({ demo }: { demo: boolean }) {
     try {
       await askStream(
         question,
+        includeGeneral,
         {
           onReferences: (refs) => {
             setReferences(refs);
@@ -86,6 +88,16 @@ export default function AskPage({ demo }: { demo: boolean }) {
         </button>
       </form>
 
+      <label className="toggle small">
+        <input
+          type="checkbox"
+          checked={includeGeneral}
+          onChange={(e) => setIncludeGeneral(e.target.checked)}
+        />
+        Include general knowledge
+        <span className="muted">(shown separately, never mixed with your notes)</span>
+      </label>
+
       {demo && status === 'idle' && !answer && (
         <div className="examples">
           <span className="muted small">Try:</span>
@@ -101,10 +113,7 @@ export default function AskPage({ demo }: { demo: boolean }) {
       {status === 'searching' && <p className="muted">Searching your memories…</p>}
 
       {(answer || status === 'answering') && (
-        <section className="card">
-          <AnswerText text={answer} onCite={showCitation} />
-          {status === 'answering' && <span className="cursor" />}
-        </section>
+        <Answer text={answer} streaming={status === 'answering'} onCite={showCitation} />
       )}
 
       {references.length > 0 && (
@@ -166,6 +175,39 @@ function Sources({
           </summary>
           <div className="stack">{others.map(card)}</div>
         </details>
+      )}
+    </section>
+  );
+}
+
+// The answer from the user's notes, followed by any general knowledge in its own
+// clearly labelled box
+function Answer({
+  text,
+  streaming,
+  onCite,
+}: {
+  text: string;
+  streaming: boolean;
+  onCite: (citation: number) => void;
+}) {
+  const { notes, general } = splitAnswer(text);
+  const cursor = streaming && <span className="cursor" />;
+
+  return (
+    <section className="card stack">
+      <div>
+        <AnswerText text={notes} onCite={onCite} />
+        {general === null && cursor}
+      </div>
+      {general !== null && (
+        <div className="general">
+          <h3 className="general-title">
+            General knowledge <span className="muted">· not from your notes</span>
+          </h3>
+          <p className="answer">{general}</p>
+          {cursor}
+        </div>
       )}
     </section>
   );
