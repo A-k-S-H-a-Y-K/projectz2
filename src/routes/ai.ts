@@ -106,7 +106,9 @@ ai.post('/search/stream', zValidator('json', searchSchema), async (c) => {
         answer = NO_MATCH_ANSWER;
         await stream.writeSSE({ event: 'token', data: JSON.stringify({ text: answer }) });
       } else {
-        for await (const text of streamAnswer(query, usable)) {
+        // Give up after the answer timeout, or as soon as the client disconnects
+        const signal = AbortSignal.any([c.req.raw.signal, AbortSignal.timeout(ANSWER_TIMEOUT_MS)]);
+        for await (const text of streamAnswer(query, usable, signal)) {
           answer += text;
           await stream.writeSSE({ event: 'token', data: JSON.stringify({ text }) });
         }
@@ -119,9 +121,14 @@ ai.post('/search/stream', zValidator('json', searchSchema), async (c) => {
     },
     async (error, stream) => {
       console.error('Streaming answer failed:', error);
+      const timedOut = error.name === 'TimeoutError';
       await stream.writeSSE({
         event: 'error',
-        data: JSON.stringify({ error: 'Failed to generate answer' }),
+        data: JSON.stringify({
+          error: timedOut
+            ? 'The AI service took too long to respond. Please try again.'
+            : 'Failed to generate an answer. Please try again.',
+        }),
       });
     }
   );

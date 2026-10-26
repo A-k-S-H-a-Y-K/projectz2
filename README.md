@@ -271,7 +271,7 @@ using the token returned by sign-up or login.
 | `references` | The matching memories, sent before the answer starts |
 | `token` | `{ "text": "..." }`, one piece of the answer |
 | `done` | `{ "cited": [1] }`, the citation numbers used in the answer |
-| `error` | `{ "error": "..." }`, sent instead of `done` if generation fails |
+| `error` | `{ "error": "..." }`, sent instead of `done` if generation fails or takes longer than `ANSWER_TIMEOUT_MS` |
 
 To watch a streamed answer in the terminal, start the server and run
 `npm run stream-demo -- "Where did I go scuba diving?"`.
@@ -286,7 +286,7 @@ extension and click **Send Request**.
 npm test
 ```
 
-62 tests run in a few seconds with [Vitest](https://vitest.dev), with no network access or
+63 tests run in a few seconds with [Vitest](https://vitest.dev), with no network access or
 API keys needed. GitHub Actions runs the type-check and tests on every push and pull request.
 
 - **Unit tests** for the prompt-injection checker, citation parsing, Reciprocal Rank Fusion,

@@ -249,12 +249,17 @@ export async function generateAnswer(query: string, memories: Memory[]): Promise
   return response.text ?? '';
 }
 
-// Same as generateAnswer, but yields the answer in pieces as the model writes it
-export async function* streamAnswer(query: string, memories: Memory[]): AsyncGenerator<string> {
+// Same as generateAnswer, but yields the answer in pieces as the model writes it.
+// Aborting `signal` stops the request (e.g. on timeout or when the client disconnects).
+export async function* streamAnswer(
+  query: string,
+  memories: Memory[],
+  signal?: AbortSignal
+): AsyncGenerator<string> {
   const stream = await gemini.models.generateContentStream({
     model: CHAT_MODEL,
     contents: buildAnswerPrompt(query, memories),
-    config: { systemInstruction: ANSWER_INSTRUCTIONS },
+    config: { systemInstruction: ANSWER_INSTRUCTIONS, abortSignal: signal },
   });
 
   for await (const chunk of stream) {

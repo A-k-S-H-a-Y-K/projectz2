@@ -28,7 +28,7 @@ import app from '../src/app.js';
 import { db } from '../src/lib/db.js';
 import { hashPassword } from '../src/lib/auth.js';
 import { TimeoutError } from '../src/lib/timeout.js';
-import { generateAnswer, searchMemories } from '../src/services/ai.js';
+import { generateAnswer, searchMemories, streamAnswer } from '../src/services/ai.js';
 import { authHeader, memory, scoredMemory } from './helpers.js';
 
 const json = (body: unknown) => ({
@@ -275,6 +275,24 @@ describe('POST /ai/search', () => {
 
       expect(res.status).toBe(504);
       expect((await res.json()).error).toMatch(/took too long/);
+    });
+
+    it('ends a streamed answer with an error event when the model times out', async () => {
+      vi.mocked(searchMemories).mockResolvedValue([scoredMemory()]);
+      vi.mocked(streamAnswer).mockImplementation(async function* () {
+        throw new DOMException('The operation timed out', 'TimeoutError');
+      } as never);
+
+      const res = await app.request('/ai/search/stream', {
+        ...json({ query: 'Where did I go?' }),
+        headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+      });
+      const body = await res.text();
+
+      expect(body).toContain('event: references');
+      expect(body).toContain('event: error');
+      expect(body).toMatch(/took too long/);
+      expect(body).not.toContain('event: done');
     });
 
     it('returns a generic 500 without internal details', async () => {
