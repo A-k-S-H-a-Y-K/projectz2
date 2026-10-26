@@ -28,7 +28,12 @@ POST /ai/search
   parallel and are merged with Reciprocal Rank Fusion, so questions match by meaning *and*
   exact names or rare words still match
 - **Grounded answers with citations**: the answer cites its sources as `[1]`, `[2]`, and each
-  returned memory says whether it was cited and how similar it is to the question
+  returned memory says whether it was cited and how similar it is to the question. Answers are
+  written in a friendly tone, but may only use facts from the memories.
+- **Optional general knowledge**: with `includeGeneralKnowledge`, the answer can add background
+  information after a separate `General knowledge:` line. That part is never cited, never
+  presented as something the user saved, and never guesses personal facts. The frontend shows it
+  in its own box labelled "not from your notes".
 - **Relevance filtering**: weak matches are dropped, and when nothing relevant is found the
   LLM isn't called at all
 - **Streaming answers** over Server-Sent Events, with sources sent before the answer starts
@@ -84,13 +89,28 @@ embedding calls, so it fits the free tiers.
 
 | Mode | Hit@1 | Hit@3 | MRR | Recall@5 | No-answer accuracy | Avg search time |
 |---|---|---|---|---|---|---|
-| semantic | 100% | 100% | 1.00 | 100% | 100% | 1004 ms |
-| keyword | 80% | 90% | 0.85 | 90% | 50% | 187 ms |
-| hybrid | 100% | 100% | 1.00 | 100% | 100% | 993 ms |
+| semantic | 100% | 100% | 1.00 | 100% | 100% | 1118 ms |
+| keyword | 80% | 90% | 0.85 | 90% | 50% | 322 ms |
+| hybrid | 100% | 100% | 1.00 | 100% | 100% | 1125 ms |
 
 *Hit@k: the right memory is in the top k results. MRR: mean of 1 / rank of the first right
 memory. No-answer accuracy: unanswerable questions that correctly return nothing.*
 Full output, including every miss: [`scripts/eval/results.md`](scripts/eval/results.md).
+
+**Choosing the relevance cutoff.** The evaluation also scores semantic search at several
+similarity cutoffs, from a single extra pass that records every match's score:
+
+| Cutoff | Hit@1 | Recall@5 | No-answer accuracy | Memories sent to the model |
+|---|---|---|---|---|
+| 0.50 | 100% | 100% | 0% | 3.8 |
+| **0.55** | **100%** | **100%** | **100%** | **1.8** |
+| 0.60 | 95% | 90% | 100% | 0.8 |
+| 0.65 | 55% | 55% | 100% | 0.5 |
+| 0.70 | 20% | 20% | 100% | 0.2 |
+
+0.55, the default, is the only cutoff that keeps every right memory while returning nothing
+for unanswerable questions. The safe range is narrow, so it should be re-checked with
+`npm run eval` after changing the embedding model or with very different notes.
 
 **What the evaluation found:**
 - The first run showed hybrid search at **50% no-answer accuracy**. Keyword matches on a
@@ -100,6 +120,8 @@ Full output, including every miss: [`scripts/eval/results.md`](scripts/eval/resu
   100% with no loss in retrieval.
 - Keyword search alone misses reworded questions (*"What fitness goals do I have?"*), which
   is what semantic search is for.
+- An earlier guess that raising the cutoff to 0.60 would cut noise was wrong: the sweep shows
+  it starts dropping correct memories.
 - **Limitations:** the dataset is small and synthetic. Semantic search alone already scores
   100% on it, so this dataset doesn't show hybrid search improving retrieval; it only shows
   that hybrid search doesn't make it worse. Testing that would need a larger, harder set of
@@ -259,7 +281,7 @@ using the token returned by sign-up or login.
 | `GET` | `/memories/:id` | Get one memory |
 | `PUT` | `/memories/:id` | Update a memory |
 | `DELETE` | `/memories/:id` | Delete a memory |
-| `POST` | `/ai/search` | Ask a question → `answer` + `references` |
+| `POST` | `/ai/search` | Ask a question (`query`, optional `includeGeneralKnowledge`) → `answer` + `references` |
 | `POST` | `/ai/search/stream` | Same, streamed as Server-Sent Events (see below) |
 
 ### Streaming
@@ -271,7 +293,7 @@ using the token returned by sign-up or login.
 | `references` | The matching memories, sent before the answer starts |
 | `token` | `{ "text": "..." }`, one piece of the answer |
 | `done` | `{ "cited": [1] }`, the citation numbers used in the answer |
-| `error` | `{ "error": "..." }`, sent instead of `done` if generation fails |
+| `error` | `{ "error": "..." }`, sent instead of `done` if generation fails or takes longer than `ANSWER_TIMEOUT_MS` |
 
 To watch a streamed answer in the terminal, start the server and run
 `npm run stream-demo -- "Where did I go scuba diving?"`.
@@ -286,7 +308,7 @@ extension and click **Send Request**.
 npm test
 ```
 
-62 tests run in a few seconds with [Vitest](https://vitest.dev), with no network access or
+69 tests run in a few seconds with [Vitest](https://vitest.dev), with no network access or
 API keys needed. GitHub Actions runs the type-check and tests on every push and pull request.
 
 - **Unit tests** for the prompt-injection checker, citation parsing, Reciprocal Rank Fusion,

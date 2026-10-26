@@ -39,7 +39,7 @@ ai.use('/*', authMiddleware, perUserLimit, appWideLimit);
 
 ai.post('/search', zValidator('json', searchSchema), async (c) => {
   const { userId } = c.get('user');
-  const { query } = c.req.valid('json');
+  const { query, includeGeneralKnowledge } = c.req.valid('json');
 
   const searchStart = performance.now();
   const memories = await withTimeout(
@@ -49,9 +49,10 @@ ai.post('/search', zValidator('json', searchSchema), async (c) => {
   );
   const searchMs = Math.round(performance.now() - searchStart);
 
-  // Skip the LLM call entirely when nothing relevant was found
+  // Without general knowledge there's nothing to say when no memory is relevant,
+  // so the LLM call is skipped
   const usable = usableMemories(memories);
-  if (usable.length === 0) {
+  if (usable.length === 0 && !includeGeneralKnowledge) {
     const response: SearchResponse = {
       answer: NO_MATCH_ANSWER,
       references: toReferences(memories, new Set()),
@@ -61,7 +62,7 @@ ai.post('/search', zValidator('json', searchSchema), async (c) => {
 
   const answerStart = performance.now();
   const answer = await withTimeout(
-    generateAnswer(query, usable),
+    generateAnswer(query, usable, { includeGeneralKnowledge }),
     ANSWER_TIMEOUT_MS,
     'Answer generation'
   );
@@ -83,7 +84,7 @@ ai.post('/search', zValidator('json', searchSchema), async (c) => {
 //   event "error"      - sent instead of "done" if generation fails
 ai.post('/search/stream', zValidator('json', searchSchema), async (c) => {
   const { userId } = c.get('user');
-  const { query } = c.req.valid('json');
+  const { query, includeGeneralKnowledge } = c.req.valid('json');
 
   // Search before opening the stream so failures still return a normal error response
   const memories = await withTimeout(
@@ -102,11 +103,13 @@ ai.post('/search/stream', zValidator('json', searchSchema), async (c) => {
 
       let answer = '';
       const usable = usableMemories(memories);
-      if (usable.length === 0) {
+      if (usable.length === 0 && !includeGeneralKnowledge) {
         answer = NO_MATCH_ANSWER;
         await stream.writeSSE({ event: 'token', data: JSON.stringify({ text: answer }) });
       } else {
-        for await (const text of streamAnswer(query, usable)) {
+        // Give up after the answer timeout, or as soon as the client disconnects
+        const signal = AbortSignal.any([c.req.raw.signal, AbortSignal.timeout(ANSWER_TIMEOUT_MS)]);
+        for await (const text of streamAnswer(query, usable, { includeGeneralKnowledge }, signal)) {
           answer += text;
           await stream.writeSSE({ event: 'token', data: JSON.stringify({ text }) });
         }
@@ -119,9 +122,14 @@ ai.post('/search/stream', zValidator('json', searchSchema), async (c) => {
     },
     async (error, stream) => {
       console.error('Streaming answer failed:', error);
+      const timedOut = error.name === 'TimeoutError';
       await stream.writeSSE({
         event: 'error',
-        data: JSON.stringify({ error: 'Failed to generate answer' }),
+        data: JSON.stringify({
+          error: timedOut
+            ? 'The AI service took too long to respond. Please try again.'
+            : 'Failed to generate an answer. Please try again.',
+        }),
       });
     }
   );

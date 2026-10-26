@@ -28,7 +28,7 @@ import app from '../src/app.js';
 import { db } from '../src/lib/db.js';
 import { hashPassword } from '../src/lib/auth.js';
 import { TimeoutError } from '../src/lib/timeout.js';
-import { generateAnswer, searchMemories } from '../src/services/ai.js';
+import { generateAnswer, searchMemories, streamAnswer } from '../src/services/ai.js';
 import { authHeader, memory, scoredMemory } from './helpers.js';
 
 const json = (body: unknown) => ({
@@ -244,11 +244,45 @@ describe('POST /ai/search', () => {
     const res = await ask('Tell me about my Goa trip');
     const body = await res.json();
 
-    expect(generateAnswer).toHaveBeenCalledWith('Tell me about my Goa trip', [genuine]);
+    expect(generateAnswer).toHaveBeenCalledWith('Tell me about my Goa trip', [genuine], {
+      includeGeneralKnowledge: false,
+    });
     expect(body.references).toMatchObject([
       { id: 1, citation: 1, cited: true, suspicious: false },
       { id: 2, citation: null, cited: false, suspicious: true },
     ]);
+  });
+
+  it('answers from general knowledge when asked, even if no memory matches', async () => {
+    vi.mocked(searchMemories).mockResolvedValue([]);
+    vi.mocked(generateAnswer).mockResolvedValue(
+      "That isn't in your notes.\n\nGeneral knowledge:\nCold brew is coffee steeped in cold water."
+    );
+
+    const res = await app.request('/ai/search', {
+      ...json({ query: 'How do I make cold brew?', includeGeneralKnowledge: true }),
+      headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    });
+
+    expect(res.status).toBe(200);
+    expect(generateAnswer).toHaveBeenCalledWith('How do I make cold brew?', [], {
+      includeGeneralKnowledge: true,
+    });
+  });
+
+  it("doesn't count citations inside the general-knowledge part", async () => {
+    vi.mocked(searchMemories).mockResolvedValue([scoredMemory({ id: 1 }), scoredMemory({ id: 2 })]);
+    vi.mocked(generateAnswer).mockResolvedValue(
+      'You went to Goa in March [1].\n\nGeneral knowledge:\nGoa is famous for its beaches [2].'
+    );
+
+    const res = await app.request('/ai/search', {
+      ...json({ query: 'Tell me about Goa', includeGeneralKnowledge: true }),
+      headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    });
+    const body = await res.json();
+
+    expect(body.references.map((r: { cited: boolean }) => r.cited)).toEqual([true, false]);
   });
 
   it("doesn't call the model when every match is suspicious", async () => {
@@ -275,6 +309,24 @@ describe('POST /ai/search', () => {
 
       expect(res.status).toBe(504);
       expect((await res.json()).error).toMatch(/took too long/);
+    });
+
+    it('ends a streamed answer with an error event when the model times out', async () => {
+      vi.mocked(searchMemories).mockResolvedValue([scoredMemory()]);
+      vi.mocked(streamAnswer).mockImplementation(async function* () {
+        throw new DOMException('The operation timed out', 'TimeoutError');
+      } as never);
+
+      const res = await app.request('/ai/search/stream', {
+        ...json({ query: 'Where did I go?' }),
+        headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+      });
+      const body = await res.text();
+
+      expect(body).toContain('event: references');
+      expect(body).toContain('event: error');
+      expect(body).toMatch(/took too long/);
+      expect(body).not.toContain('event: done');
     });
 
     it('returns a generic 500 without internal details', async () => {

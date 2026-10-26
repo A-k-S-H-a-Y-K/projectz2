@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { extractCitations, toReferences, usableMemories } from '../../src/lib/citations.js';
+import {
+  extractCitations,
+  splitAnswer,
+  toReferences,
+  usableMemories,
+} from '../../src/lib/citations.js';
 import { scoredMemory } from '../helpers.js';
 
 describe('extractCitations', () => {
@@ -13,6 +18,27 @@ describe('extractCitations', () => {
 
   it('ignores brackets that are not numbers', () => {
     expect(extractCitations('See [note] and [2a]')).toEqual(new Set());
+  });
+
+  it('ignores citations in the general-knowledge part', () => {
+    expect(extractCitations('Goa [1].\nGeneral knowledge:\nBeaches [2].')).toEqual(new Set([1]));
+  });
+});
+
+describe('splitAnswer', () => {
+  it('separates the memory-based part from general knowledge', () => {
+    expect(splitAnswer('From your notes [1].\n\nGeneral knowledge:\nSome background.')).toEqual({
+      notes: 'From your notes [1].',
+      general: 'Some background.',
+    });
+  });
+
+  it('accepts the marker with markdown formatting', () => {
+    expect(splitAnswer('Notes.\n**General knowledge:**\nBackground.').general).toBe('Background.');
+  });
+
+  it('returns no general part when the marker is missing', () => {
+    expect(splitAnswer('Only notes [1].')).toEqual({ notes: 'Only notes [1].', general: null });
   });
 });
 

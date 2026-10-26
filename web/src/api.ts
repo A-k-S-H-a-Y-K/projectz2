@@ -151,6 +151,7 @@ export const deleteMemory = (id: number) => send(`/memories/${id}`, { method: 'D
 // in pieces, then the citation numbers the answer used.
 export async function askStream(
   query: string,
+  includeGeneralKnowledge: boolean,
   handlers: {
     onReferences: (references: Reference[]) => void;
     onToken: (text: string) => void;
@@ -160,10 +161,12 @@ export async function askStream(
 ) {
   const res = await send('/ai/search/stream', {
     method: 'POST',
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ query, includeGeneralKnowledge }),
     signal,
   });
   const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();
+
+  let finished = false;
 
   // Server-Sent Events are separated by a blank line; each has "event:" and "data:" lines
   const handle = (message: string) => {
@@ -174,17 +177,30 @@ export async function askStream(
     const payload = JSON.parse(data);
     if (event === 'references') handlers.onReferences(payload);
     else if (event === 'token') handlers.onToken(payload.text);
-    else if (event === 'done') handlers.onDone(payload.cited);
-    else if (event === 'error') throw new ApiError(payload.error, 500);
+    else if (event === 'done') {
+      finished = true;
+      handlers.onDone(payload.cited);
+    } else if (event === 'error') throw new ApiError(payload.error, 500);
   };
 
   let buffer = '';
   for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += value;
+    let chunk: ReadableStreamReadResult<string>;
+    try {
+      chunk = await reader.read();
+    } catch (error) {
+      if ((error as Error).name === 'AbortError') throw error;
+      throw new ApiError('The connection was lost while answering. Please try again.', 0);
+    }
+    if (chunk.done) break;
+    buffer += chunk.value;
     const messages = buffer.split('\n\n');
     buffer = messages.pop() ?? '';
     messages.forEach(handle);
+  }
+
+  // The stream closed without its final event, e.g. the server restarted mid-answer
+  if (!finished) {
+    throw new ApiError('The answer was interrupted. Please try again.', 0);
   }
 }

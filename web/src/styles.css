@@ -280,6 +280,32 @@ button.danger {
   display: inline;
 }
 
+.toggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+}
+
+.toggle input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.general {
+  padding: 0.8rem 0.9rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+.general-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
 .cite {
   display: inline-flex;
   align-items: center;
@@ -336,6 +362,15 @@ button.danger {
 
 .source.suspicious {
   opacity: 0.8;
+}
+
+.others summary {
+  cursor: pointer;
+  margin-bottom: 0.9rem;
+}
+
+.others:not([open]) summary {
+  margin-bottom: 0;
 }
 
 .source-header {
