@@ -3,6 +3,7 @@ import { GoogleGenAI } from '@google/genai';
 import type { Memory } from '@prisma/client';
 import { db } from '../lib/db.js';
 import { looksLikePromptInjection, escapeForPrompt } from '../lib/injection.js';
+import { reciprocalRankFusion } from '../lib/rrf.js';
 import type { ScoredMemory, SearchMode, SearchSource } from '../types/index.js';
 
 // Search logs help tune relevance during development; the eval script turns them off
@@ -160,17 +161,6 @@ async function keywordSearch(
   };
 }
 
-// Reciprocal Rank Fusion: merges ranked lists by summing 1 / (k + rank) for each list an id
-// appears in. Items ranked well in either list rise to the top, and items in both get a boost.
-// k = 60 is the standard constant from the original RRF paper.
-function reciprocalRankFusion(rankedLists: number[][], k = 60): number[] {
-  const fused = new Map<number, number>();
-  for (const list of rankedLists) {
-    list.forEach((id, rank) => fused.set(id, (fused.get(id) ?? 0) + 1 / (k + rank + 1)));
-  }
-  return [...fused.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
-}
-
 // Hybrid search: semantic and keyword search run in parallel and are merged with RRF.
 // `mode` can restrict it to one of the two, which the evaluation script uses for comparison.
 export async function searchMemories(
@@ -272,9 +262,4 @@ export async function* streamAnswer(query: string, memories: Memory[]): AsyncGen
       yield chunk.text;
     }
   }
-}
-
-// Returns the memory numbers cited in an answer, e.g. "... [1][3]" -> {1, 3}
-export function extractCitations(answer: string): Set<number> {
-  return new Set([...answer.matchAll(/\[(\d+)\]/g)].map((match) => Number(match[1])));
 }

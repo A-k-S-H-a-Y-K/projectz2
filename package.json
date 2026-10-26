@@ -11,7 +11,9 @@
     "prisma:studio": "prisma studio",
     "pinecone:setup": "tsx scripts/setup-pinecone.ts",
     "stream-demo": "tsx scripts/stream-demo.ts",
-    "eval": "tsx scripts/eval/run.ts"
+    "eval": "tsx scripts/eval/run.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@google/genai": "^2.31.0",
@@ -28,7 +30,8 @@
     "@types/node": "^24.19.2",
     "prisma": "^5.10.2",
     "tsx": "^4.7.1",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^5.0.5"
   },
   "allowScripts": {
     "@prisma/client@5.22.0": true,
