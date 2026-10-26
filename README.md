@@ -1,5 +1,7 @@
 # Memory Assistant API
 
+[![CI](https://github.com/A-k-S-H-a-Y-K/projectz2/actions/workflows/ci.yml/badge.svg)](https://github.com/A-k-S-H-a-Y-K/projectz2/actions/workflows/ci.yml)
+
 A backend for a personal AI assistant that answers questions using **your own notes**.
 Save memories (notes with a title and tags), then ask questions in plain English. The API
 finds the most relevant memories by meaning and has an LLM write an answer grounded in them.
@@ -224,7 +226,7 @@ npm test
 ```
 
 52 tests run in a few seconds with [Vitest](https://vitest.dev), with no network access or
-API keys needed:
+API keys needed. GitHub Actions runs the type-check and tests on every push and pull request.
 
 - **Unit tests** for the prompt-injection checker, citation parsing, Reciprocal Rank Fusion,
   token lifetimes, password hashing and request validation, including regression tests for
@@ -274,5 +276,5 @@ tests/                  # Unit and route tests (Vitest)
 - [x] Retrieval evaluation
 - [ ] Answer-quality evaluation (faithfulness of generated answers)
 - [x] Automated tests
-- [ ] Continuous integration
+- [x] Continuous integration (GitHub Actions: type-check and tests on every push and PR)
 - [ ] Web frontend and deployment
