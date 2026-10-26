@@ -24,7 +24,7 @@ export function scoredMemory(overrides: Partial<ScoredMemory> = {}): ScoredMemor
   };
 }
 
-export async function authHeader(userId = 1) {
-  const token = await generateToken({ userId, email: `user${userId}@example.com` });
+export async function authHeader(userId = 1, { demo = false } = {}) {
+  const token = await generateToken({ userId, email: `user${userId}@example.com`, demo });
   return { Authorization: `Bearer ${token}` };
 }

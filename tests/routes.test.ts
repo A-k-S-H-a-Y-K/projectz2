@@ -27,6 +27,7 @@ vi.mock('../src/services/ai.js', () => ({
 import app from '../src/app.js';
 import { db } from '../src/lib/db.js';
 import { hashPassword } from '../src/lib/auth.js';
+import { TimeoutError } from '../src/lib/timeout.js';
 import { generateAnswer, searchMemories } from '../src/services/ai.js';
 import { authHeader, memory, scoredMemory } from './helpers.js';
 
@@ -35,6 +36,14 @@ const json = (body: unknown) => ({
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(body),
 });
+
+const memoryOwner = {
+  id: 1,
+  email: 'a@example.com',
+  name: 'Akshay',
+  passwordHash: '!',
+  createdAt: new Date('2026-01-01T00:00:00Z'),
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -82,6 +91,85 @@ describe('health and auth', () => {
     );
 
     expect(res.status).toBe(401);
+  });
+});
+
+describe('sign-up modes', () => {
+  const signup = (body: Record<string, string> = {}) =>
+    app.request(
+      '/auth/signup',
+      json({ email: 'new@example.com', name: 'Akshay', password: 'password123', ...body })
+    );
+
+  afterEach(() => {
+    delete process.env.SIGNUP_MODE;
+    delete process.env.INVITE_CODE;
+  });
+
+  it('rejects sign-ups when closed', async () => {
+    process.env.SIGNUP_MODE = 'closed';
+
+    const res = await signup();
+
+    expect(res.status).toBe(403);
+    expect(db.user.create).not.toHaveBeenCalled();
+  });
+
+  it('requires the right invite code in invite mode', async () => {
+    process.env.SIGNUP_MODE = 'invite';
+    process.env.INVITE_CODE = 'friends-only';
+    vi.mocked(db.user.findUnique).mockResolvedValue(null);
+    vi.mocked(db.user.create).mockResolvedValue(memoryOwner as never);
+
+    expect((await signup()).status).toBe(403);
+    expect((await signup({ inviteCode: 'guess' })).status).toBe(403);
+    expect((await signup({ inviteCode: 'friends-only' })).status).toBe(201);
+  });
+
+  it('tells clients which options are available', async () => {
+    process.env.SIGNUP_MODE = 'invite';
+
+    const res = await app.request('/auth/config');
+
+    expect(await res.json()).toEqual({ signupMode: 'invite', demoEnabled: true });
+  });
+});
+
+describe('demo account', () => {
+  it('logs in without a password and marks the session as demo', async () => {
+    vi.mocked(db.user.findUnique).mockResolvedValue(memoryOwner as never);
+
+    const res = await app.request('/auth/demo', { method: 'POST' });
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).demo).toBe(true);
+  });
+
+  it("reports when the demo account hasn't been seeded", async () => {
+    vi.mocked(db.user.findUnique).mockResolvedValue(null);
+
+    const res = await app.request('/auth/demo', { method: 'POST' });
+
+    expect(res.status).toBe(503);
+  });
+
+  it('can read memories but not change them', async () => {
+    vi.mocked(db.memory.findMany).mockResolvedValue([] as never);
+    vi.mocked(db.memory.count).mockResolvedValue(0 as never);
+    const headers = await authHeader(1, { demo: true });
+
+    expect((await app.request('/memories', { headers })).status).toBe(200);
+
+    const create = await app.request('/memories', {
+      ...json({ content: 'Planting an injection', tags: [] }),
+      headers: { 'Content-Type': 'application/json', ...headers },
+    });
+    const remove = await app.request('/memories/1', { method: 'DELETE', headers });
+
+    expect(create.status).toBe(403);
+    expect(remove.status).toBe(403);
+    expect(db.memory.create).not.toHaveBeenCalled();
+    expect(db.memory.delete).not.toHaveBeenCalled();
   });
 });
 
@@ -177,6 +265,16 @@ describe('POST /ai/search', () => {
     });
     afterEach(() => {
       vi.mocked(console.error).mockRestore();
+    });
+
+    it('returns 504 with a clear message when the model is too slow', async () => {
+      vi.mocked(searchMemories).mockResolvedValue([scoredMemory()]);
+      vi.mocked(generateAnswer).mockRejectedValue(new TimeoutError('Answer generation', 30_000));
+
+      const res = await ask('Where did I go?');
+
+      expect(res.status).toBe(504);
+      expect((await res.json()).error).toMatch(/took too long/);
     });
 
     it('returns a generic 500 without internal details', async () => {

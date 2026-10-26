@@ -7,14 +7,10 @@
 // no answers are generated.
 import 'dotenv/config';
 import { writeFile } from 'node:fs/promises';
-import { Pinecone } from '@pinecone-database/pinecone';
 import { db } from '../../src/lib/db.js';
-import {
-  searchMemories,
-  storeMemoryEmbedding,
-  deleteMemoryEmbedding,
-} from '../../src/services/ai.js';
+import { searchMemories } from '../../src/services/ai.js';
 import type { SearchMode } from '../../src/types/index.js';
+import { EMBEDDING_PAUSE_MS, replaceMemories, sleep, withRetry } from '../lib/load-memories.js';
 import { memories, questions, type EvalQuestion } from './dataset.js';
 
 process.env.LOG_SEARCH = 'false';
@@ -22,24 +18,6 @@ process.env.LOG_SEARCH = 'false';
 const EVAL_EMAIL = 'eval@memory-assistant.local';
 const TOP_K = 5;
 const MODES: SearchMode[] = ['semantic', 'keyword', 'hybrid'];
-// Spaces out embedding calls to stay under the Gemini free tier's per-minute limit
-const EMBEDDING_PAUSE_MS = 700;
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// Retries calls that hit a rate limit, waiting for the per-minute quota to reset
-async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      const rateLimited = /429|RESOURCE_EXHAUSTED|quota/i.test(String(error));
-      if (!rateLimited || attempt > 3) throw error;
-      console.log(`  ${label}: rate limited, waiting 30s (retry ${attempt}/3)`);
-      await sleep(30_000);
-    }
-  }
-}
 
 // --- 1. Load the dataset into a fresh eval user ---
 
@@ -50,35 +28,7 @@ const user = await db.user.upsert({
   create: { email: EVAL_EMAIL, name: 'Evaluation', passwordHash: '!' },
 });
 
-const oldMemories = await db.memory.findMany({ where: { userId: user.id }, select: { id: true } });
-if (oldMemories.length > 0) {
-  console.log(`Removing ${oldMemories.length} memories from the previous run...`);
-  await Promise.all(oldMemories.map(({ id }) => deleteMemoryEmbedding(id)));
-  await db.memory.deleteMany({ where: { userId: user.id } });
-}
-
-console.log(`Loading ${memories.length} memories...`);
-const keyById = new Map<number, string>();
-for (const { key, title, content, tags } of memories) {
-  const memory = await db.memory.create({ data: { title, content, tags, userId: user.id } });
-  keyById.set(memory.id, key);
-  await withRetry(() => storeMemoryEmbedding(memory), key);
-  await sleep(EMBEDDING_PAUSE_MS);
-}
-
-// Pinecone makes new vectors searchable after a short delay
-console.log('Waiting for Pinecone to index them...');
-const index = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! }).index({
-  name: process.env.PINECONE_INDEX_NAME!,
-});
-const ids = [...keyById.keys()].map(String);
-for (let waited = 0; ; waited += 2) {
-  const { records } = await index.fetch({ ids });
-  if (Object.keys(records).length === ids.length) break;
-  if (waited >= 60) throw new Error('Timed out waiting for Pinecone to index the memories');
-  await sleep(2000);
-}
-await sleep(5000);
+const keyById = await replaceMemories(user.id, memories);
 
 // --- 2. Run every question through every mode ---
 

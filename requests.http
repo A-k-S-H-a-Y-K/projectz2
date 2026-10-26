@@ -4,6 +4,7 @@
 
 @baseUrl = http://localhost:3001
 @token = {{login.response.body.token}}
+@demoToken = {{demo.response.body.token}}
 
 ### Health check
 GET {{baseUrl}}/health
@@ -26,6 +27,36 @@ Content-Type: application/json
 {
   "email": "test@example.com",
   "password": "password123"
+}
+
+### Sign-up mode and demo availability
+GET {{baseUrl}}/auth/config
+
+### Demo login (run "npm run demo:seed" once first)
+# @name demo
+POST {{baseUrl}}/auth/demo
+
+### Demo: list the sample memories
+GET {{baseUrl}}/memories?limit=30
+Authorization: Bearer {{demoToken}}
+
+### Demo: adding a memory is rejected (403, read-only)
+POST {{baseUrl}}/memories
+Authorization: Bearer {{demoToken}}
+Content-Type: application/json
+
+{
+  "content": "Trying to write to the demo account",
+  "tags": []
+}
+
+### Demo: ask a question about the sample memories
+POST {{baseUrl}}/ai/search
+Authorization: Bearer {{demoToken}}
+Content-Type: application/json
+
+{
+  "query": "What did the doctor prescribe?"
 }
 
 ### Current session

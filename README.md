@@ -34,6 +34,8 @@ POST /ai/search
   and memories that look like injection attempts are withheld from the model
 - **Memory management**: create, edit, delete, paginate, filter by tags, date range or text
 - **JWT authentication** with bcrypt password hashing; every query is scoped to the signed-in user
+- **Safe to host publicly**: a one-click read-only demo account, configurable sign-up
+  (open, invite-only or closed), and rate limits that protect the free AI quota
 - **Input validation** with size limits on every request (Zod)
 - **Free to run**: Neon Postgres, Pinecone and the Gemini API all have free tiers
 
@@ -100,6 +102,32 @@ Full output, including every miss: [`scripts/eval/results.md`](scripts/eval/resu
   100% on it, so this dataset doesn't show hybrid search improving retrieval; it only shows
   that hybrid search doesn't make it worse. Testing that would need a larger, harder set of
   real notes.
+
+## Demo account, sign-up and rate limits
+
+Every user shares the server's Gemini key and its small free quota, so a public deployment
+needs guardrails:
+
+- **Demo account.** `POST /auth/demo` logs a visitor into a shared account without a
+  password. `npm run demo:seed` fills it with the 25 sample memories from the evaluation
+  dataset. The demo is **read-only**: visitors can browse and ask questions, but can't add,
+  edit or delete memories, so nobody can fill it with junk or plant prompt injections.
+- **Sign-up modes.** `SIGNUP_MODE` is `open`, `invite` (requires `INVITE_CODE`) or `closed`.
+  It defaults to `closed` in production. `GET /auth/config` tells a client which options to show.
+- **Rate limits** (all configurable):
+
+  | Limit | Default | Counted per |
+  |---|---|---|
+  | AI questions | 20 per hour | User, or IP address for demo visitors |
+  | AI questions, whole app | 200 per day | Everyone combined |
+  | Login, sign-up and demo login | 10 per 15 minutes | IP address |
+
+  Requests over a limit get `429` with a `Retry-After` header. Counters are kept in memory,
+  which suits a single server instance; several instances would need a shared store such
+  as Redis. Behind a hosting proxy, set `TRUST_PROXY=true` so limits use the visitor's IP.
+
+On Gemini's free tier, Google may use API inputs to improve its products, so a public
+deployment shouldn't be used for sensitive personal notes.
 
 ## Prompt-injection protection
 
@@ -204,6 +232,8 @@ using the token returned by sign-up or login.
 | `GET` | `/health` | Health check |
 | `POST` | `/auth/signup` | Create an account → user + token |
 | `POST` | `/auth/login` | Log in → user + token |
+| `POST` | `/auth/demo` | Log into the read-only demo account → user + token |
+| `GET` | `/auth/config` | Sign-up mode and whether the demo is enabled |
 | `GET` | `/auth/session` | Current user |
 | `POST` | `/memories` | Create a memory (`title?`, `content`, `tags`) |
 | `GET` | `/memories` | List memories. Query: `page`, `limit`, `search`, `tags`, `startDate`, `endDate` |
@@ -237,14 +267,15 @@ extension and click **Send Request**.
 npm test
 ```
 
-52 tests run in a few seconds with [Vitest](https://vitest.dev), with no network access or
+62 tests run in a few seconds with [Vitest](https://vitest.dev), with no network access or
 API keys needed. GitHub Actions runs the type-check and tests on every push and pull request.
 
 - **Unit tests** for the prompt-injection checker, citation parsing, Reciprocal Rank Fusion,
-  token lifetimes, password hashing and request validation, including regression tests for
+  rate limiting, token lifetimes, password hashing and request validation, including regression tests for
   earlier bugs (`JWT_EXPIRES_IN=7d` once meant 7 seconds; `?page=2` was rejected).
 - **Route tests** that send real HTTP requests to the app with the database and AI services
-  mocked. They check that requests without a valid token get 401, that users can only reach
+  mocked. They check sign-up modes, that the demo account is read-only, that requests
+  without a valid token get 401, that users can only reach
   their own memories, that the model isn't called when nothing relevant is found, that
   suspicious memories are never sent to the model, and that 500 responses don't leak
   internal error details.
@@ -276,6 +307,7 @@ tests/                  # Unit and route tests (Vitest)
 | `npm run pinecone:setup` | Create the Pinecone index |
 | `npm run stream-demo -- "<question>"` | Ask a question and print the streamed answer |
 | `npm run eval` | Run the retrieval evaluation and write `scripts/eval/results.md` |
+| `npm run demo:seed` | Create the demo account and load its sample memories |
 | `npm test` | Run the test suite (`npm run test:watch` re-runs on changes) |
 | `npm run prisma:studio` | Browse the database in a web UI |
 

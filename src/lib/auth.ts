@@ -21,7 +21,11 @@ export const hashPassword = (password: string): Promise<string> => bcrypt.hash(p
 export const comparePassword = (password: string, hash: string): Promise<boolean> =>
   bcrypt.compare(password, hash);
 
-export const generateToken = (payload: { userId: number; email: string }): Promise<string> => {
+export const generateToken = (payload: {
+  userId: number;
+  email: string;
+  demo?: boolean;
+}): Promise<string> => {
   const jwtSecret = process.env.JWT_SECRET;
   if (!jwtSecret) {
     throw new Error('JWT_SECRET environment variable is not set');

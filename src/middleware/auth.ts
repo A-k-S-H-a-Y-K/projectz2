@@ -25,4 +25,12 @@ export const authMiddleware = async (c: Context, next: Next) => {
   } catch {
     return c.json({ error: 'Invalid token' }, 401);
   }
-}; 
+};
+
+// The demo account is shared by every visitor, so it can read but never change data
+export const rejectDemoWrites = async (c: Context, next: Next) => {
+  if (c.get('user').demo && !['GET', 'HEAD'].includes(c.req.method)) {
+    return c.json({ error: 'The demo account is read-only' }, 403);
+  }
+  await next();
+};
