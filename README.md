@@ -182,6 +182,18 @@ npm run dev
 
 The API runs at `http://localhost:3001`. Check it with `GET /health`.
 
+### Or run with Docker
+
+```bash
+docker build -t memory-assistant .
+docker run --env-file .env -p 3001:3001 memory-assistant
+```
+
+The image contains only production dependencies and compiled code. Settings and secrets are
+read from environment variables when the container starts, and `.env` is never copied into
+the image. Run migrations and `npm run pinecone:setup` from your machine first, as above.
+CI builds the image on every push to check that it still builds.
+
 ## API
 
 All `/memories` and `/ai` routes need an `Authorization: Bearer <token>` header,
@@ -276,5 +288,6 @@ tests/                  # Unit and route tests (Vitest)
 - [x] Retrieval evaluation
 - [ ] Answer-quality evaluation (faithfulness of generated answers)
 - [x] Automated tests
-- [x] Continuous integration (GitHub Actions: type-check and tests on every push and PR)
+- [x] Continuous integration (GitHub Actions: type-check, tests and Docker build on every push and PR)
+- [x] Docker image
 - [ ] Web frontend and deployment
