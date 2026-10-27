@@ -59,6 +59,15 @@ Content-Type: application/json
   "query": "What did the doctor prescribe?"
 }
 
+### Demo: a detail buried in the long Europe trip note
+POST {{baseUrl}}/ai/search
+Authorization: Bearer {{demoToken}}
+Content-Type: application/json
+
+{
+  "query": "How much did the Eurostar ticket cost?"
+}
+
 ### Current session
 GET {{baseUrl}}/auth/session
 Authorization: Bearer {{token}}
