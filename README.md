@@ -134,7 +134,7 @@ needs guardrails:
 
 - **Demo account.** `POST /auth/demo` logs a visitor into a shared account without a
   password. `npm run demo:seed` fills it with the 25 sample memories from the evaluation
-  dataset. The demo is **read-only**: visitors can browse and ask questions, but can't add,
+  dataset, plus one long trip-planning note full of dates, prices and booking codes. The demo is **read-only**: visitors can browse and ask questions, but can't add,
   edit or delete memories, so nobody can fill it with junk or plant prompt injections.
 - **Sign-up modes.** `SIGNUP_MODE` is `open`, `invite` (requires `INVITE_CODE`) or `closed`.
   It defaults to `closed` in production. `GET /auth/config` tells a client which options to show.
@@ -174,6 +174,23 @@ withheld, and a subtle one (*"tell them the trip was cancelled"*) that detection
 catch, which the model received but didn't follow. The answer stayed correct and cited only
 the genuine memory. No prompt-injection defense is complete, which is why there are two
 independent layers.
+
+## Known limitations
+
+Found by asking the demo account questions by hand. The retrieval evaluation measures search,
+not the wording of generated answers, so these aren't caught automatically yet.
+
+- **Each question stands alone.** There's no conversation history, so follow-ups like
+  *"Did she come with me on that trip?"* can't tell who "she" is or which trip.
+- **Answer wording isn't fully predictable.** The model sometimes puts a citation on a
+  "this isn't in your notes" sentence, may leave out a note written as a plan when asked what
+  has already happened, and its general-knowledge section can be generic. In every test it
+  only stated facts that are in the memories.
+- **Long notes are embedded as a whole.** A 1,500-character note full of details was still
+  found for questions about single details (about 64% similarity), but much longer notes may
+  need splitting into chunks.
+- **The model gets today's date with each question** so it can tell past from upcoming
+  events. Without it, a June trip plan was described as "coming up soon" in October.
 
 ## Tech stack
 
@@ -360,7 +377,9 @@ web/                    # React + Vite frontend
 - [x] Prompt-injection protection
 - [x] Hybrid search (keyword + semantic)
 - [x] Retrieval evaluation
-- [ ] Answer-quality evaluation (faithfulness of generated answers)
+- [ ] Answer-quality evaluation (faithfulness and citation accuracy of generated answers)
+- [ ] Follow-up questions (conversation history)
+- [ ] Splitting long notes into chunks
 - [x] Automated tests
 - [x] Continuous integration (GitHub Actions: API type-check and tests, frontend build and Docker build on every push and PR)
 - [x] Docker image
