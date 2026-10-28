@@ -224,7 +224,9 @@ Rules for using memories:
 - Use only facts that are in the memories. Never change, add or guess facts: no names, numbers, dates or details that the memories don't contain.
 - Write a warm, natural answer, speaking to the user as "you", in one to four sentences. You may connect related facts from the memories and point out a useful detail they mention, such as an upcoming date or a next step.
 - After each fact, cite the memory it came from by its id in square brackets, like [1] or [1][2]. Only cite next to facts taken from a memory; never cite a statement that something isn't in the notes.
-- Today's date is given before the question. Only describe something as upcoming, recent or past by comparing its date with today's date. If you can't tell, don't comment on timing.`;
+- Today's date is given before the question, and each memory has the date it was saved. Only describe something as upcoming, recent or past by comparing its date with today's date. If you can't tell, don't comment on timing.
+- A memory may describe a plan. If the planned date is still ahead, it is upcoming. If the planned date has passed and no memory says it happened, it is neither upcoming nor confirmed: say it was planned for that date and that the notes don't say whether it happened.
+- When the question asks which, what or how many (for example "which trips"), check every memory and mention each one that fits, including plans as described above.`;
 
 const NOTES_ONLY_INSTRUCTIONS = `${MEMORY_RULES}
 - If the memories don't answer the question, say kindly that you couldn't find it in their memories, and don't cite anything.`;
@@ -309,6 +311,11 @@ export async function* streamAnswer(
   for await (const chunk of stream) {
     if (chunk.text) {
       yield chunk.text;
+    }
+    // Stop once the model says it has finished, instead of waiting for the connection to
+    // close, which sometimes takes until the timeout
+    if (chunk.candidates?.[0]?.finishReason) {
+      return;
     }
   }
 }

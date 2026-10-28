@@ -189,8 +189,10 @@ not the wording of generated answers, so these aren't caught automatically yet.
 - **Long notes are embedded as a whole.** A 1,500-character note full of details was still
   found for questions about single details (about 64% similarity), but much longer notes may
   need splitting into chunks.
-- **The model gets today's date with each question** so it can tell past from upcoming
-  events. Without it, a June trip plan was described as "coming up soon" in October.
+- **The model gets today's date with each question**, plus the date each memory was saved,
+  so it can tell past from upcoming events. Without them, a June trip plan was described as
+  "coming up soon" in October. The demo notes are dated as if written around October 2026,
+  so after that, notes like an upcoming interview will read as past.
 
 ## Tech stack
 
@@ -280,6 +282,38 @@ read from environment variables when the container starts, and `.env` is never c
 the image. Run migrations and `npm run pinecone:setup` from your machine first, as above.
 CI builds the image on every push to check that it still builds.
 
+## Deployment
+
+Planned for free tiers: the API as a Docker web service on [Render](https://render.com),
+and the frontend as a Render static site. The database (Neon), vectors (Pinecone) and
+models (Gemini) are already hosted services.
+
+**API (Render web service from the `Dockerfile`).** Set these environment variables in the
+Render dashboard, never in the repository:
+
+| Variable | Value |
+|---|---|
+| `NODE_ENV` | `production` |
+| `CORS_ORIGIN` | The frontend's URL, e.g. `https://<your-site>.onrender.com` |
+| `TRUST_PROXY` | `true`, so rate limits use the visitor's IP rather than the proxy's |
+| `JWT_SECRET` | A new random secret of at least 32 characters, not the one used locally |
+| `DATABASE_URL`, `PINECONE_API_KEY`, `PINECONE_INDEX_NAME`, `GEMINI_API_KEY` | As in `.env` |
+
+`SIGNUP_MODE` defaults to `closed` in production, so visitors use the read-only demo.
+
+**Frontend (Render static site).** Root directory `web`, build command
+`npm ci && npm run build`, publish directory `dist`, and `VITE_API_URL` set to the API's URL.
+
+**Safety checks built in for deployment:**
+
+- The server refuses to start, and lists what's wrong, if a required setting is missing,
+  if `CORS_ORIGIN` isn't set in production, or if `JWT_SECRET` is shorter than 32 characters
+  in production.
+- Request bodies over 100 KB are rejected with `413` before they're read.
+- Render's free plan stops the API after 15 idle minutes and takes about a minute to start
+  again. The frontend shows a "waking up the server" message when a request takes more than
+  a few seconds, instead of looking frozen.
+
 ## API
 
 All `/memories` and `/ai` routes need an `Authorization: Bearer <token>` header,
@@ -325,17 +359,18 @@ extension and click **Send Request**.
 npm test
 ```
 
-69 tests run in a few seconds with [Vitest](https://vitest.dev), with no network access or
+75 tests run in a few seconds with [Vitest](https://vitest.dev), with no network access or
 API keys needed. GitHub Actions runs the type-check and tests on every push and pull request.
 
 - **Unit tests** for the prompt-injection checker, citation parsing, Reciprocal Rank Fusion,
-  rate limiting, token lifetimes, password hashing and request validation, including regression tests for
-  earlier bugs (`JWT_EXPIRES_IN=7d` once meant 7 seconds; `?page=2` was rejected).
+  rate limiting, startup settings checks, token lifetimes, password hashing and request
+  validation, including regression tests for earlier bugs (`JWT_EXPIRES_IN=7d` once meant
+  7 seconds; `?page=2` was rejected).
 - **Route tests** that send real HTTP requests to the app with the database and AI services
   mocked. They check sign-up modes, that the demo account is read-only, that requests
-  without a valid token get 401, that users can only reach
-  their own memories, that the model isn't called when nothing relevant is found, that
-  suspicious memories are never sent to the model, and that 500 responses don't leak
+  without a valid token get 401, that users can only reach their own memories, that the
+  model isn't called when nothing relevant is found, that suspicious memories are never sent
+  to the model, that oversized request bodies get 413, and that 500 responses don't leak
   internal error details.
 
 ## Project structure

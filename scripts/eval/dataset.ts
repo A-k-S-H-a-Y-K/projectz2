@@ -7,6 +7,8 @@
 
 export interface EvalMemory {
   key: string;
+  // When the note was written (YYYY-MM-DD), so dates in its text read as they would to a real user
+  savedAt: string;
   title: string;
   content: string;
   tags: string[];
@@ -23,6 +25,7 @@ export interface EvalQuestion {
 export const memories: EvalMemory[] = [
   {
     key: 'goa-trip',
+    savedAt: '2026-03-22',
     title: 'Trip to Goa',
     content:
       'Went to Goa in March 2026 with college friends. Stayed near Baga beach, tried scuba diving at Grande Island and loved the fish curry at a small shack called Brittos.',
@@ -30,6 +33,7 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'manali-trip',
+    savedAt: '2025-12-30',
     title: 'Manali trip',
     content:
       'Family trip to Manali in December 2025. Saw snow at Solang Valley. Paragliding got cancelled because of strong winds. Stayed at Hotel Snow Peak.',
@@ -37,6 +41,7 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'gym-routine',
+    savedAt: '2026-09-14',
     title: 'Gym routine',
     content:
       'Started going to the gym in September. Monday chest and triceps, Wednesday back and biceps, Friday legs. Trying to bench press 60 kg by December.',
@@ -44,6 +49,7 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'running',
+    savedAt: '2026-10-05',
     title: 'Running progress',
     content:
       'Running laps at Cubbon Park three mornings a week. Current 5 km time is 31 minutes. Aiming to finish the TCS World 10K in May under 60 minutes.',
@@ -51,6 +57,7 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'doctor-visit',
+    savedAt: '2026-09-20',
     title: 'Doctor visit',
     content:
       'Dr. Mehta said my vitamin D is low at 18 ng/mL. Prescribed a 60,000 IU capsule once a week for 8 weeks, then a retest.',
@@ -58,6 +65,7 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'wifi',
+    savedAt: '2025-11-08',
     title: 'Home internet',
     content:
       'Internet provider is ACT Fibernet, account number ACT-4471982. Plan is 150 Mbps. The router password is saved in the password manager.',
@@ -65,6 +73,7 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'laptop',
+    savedAt: '2025-01-18',
     title: 'Laptop warranty',
     content:
       'Bought a Dell XPS 15 in January 2025. Service tag 7GH2KQ3. Warranty is valid until January 2027 and covers accidental damage.',
@@ -72,12 +81,14 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'rent',
+    savedAt: '2025-07-03',
     title: 'Rent',
     content: 'Rent is 18,000 rupees a month, paid to the landlord Mr. Rao by UPI on the 5th.',
     tags: ['money', 'home'],
   },
   {
     key: 'sip',
+    savedAt: '2025-06-12',
     title: 'Investments',
     content:
       'Started a 5,000 rupee monthly SIP in the Parag Parikh Flexi Cap mutual fund in June 2025. It is deducted on the 10th.',
@@ -85,6 +96,7 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'mom-birthday',
+    savedAt: '2026-08-02',
     title: "Mom's birthday",
     content:
       "Mom's birthday is on 14 August. She loves gardening, so I'm planning to gift her a set of terracotta planters.",
@@ -92,6 +104,7 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'dad-medicine',
+    savedAt: '2026-05-16',
     title: "Dad's medicine",
     content:
       'Dad takes Telma 40 for blood pressure every morning after breakfast. A 30-day strip is refilled from Apollo Pharmacy.',
@@ -99,6 +112,7 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'biryani',
+    savedAt: '2026-02-08',
     title: 'Chicken biryani recipe',
     content:
       'Marinate the chicken in curd, ginger garlic paste and biryani masala for 2 hours. Par-boil basmati rice, layer it with the chicken and cook on dum for 25 minutes.',
@@ -106,6 +120,7 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'cold-coffee',
+    savedAt: '2026-04-25',
     title: 'Cold coffee recipe',
     content:
       'Blend 2 teaspoons of instant coffee, 2 teaspoons of sugar, a glass of cold milk and ice for 30 seconds.',
@@ -113,6 +128,7 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'internship',
+    savedAt: '2026-07-01',
     title: 'Internship',
     content:
       'Internship at Zentrix Labs building a REST API in Go. My mentor is Priya. Daily standup is at 10:30.',
@@ -120,6 +136,7 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'interview',
+    savedAt: '2026-10-19',
     title: 'Interview prep',
     content:
       'Software engineering interview at Amazon on 12 November. Focus on graphs and dynamic programming and finish the LeetCode 75 list.',
@@ -127,6 +144,7 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'book',
+    savedAt: '2026-06-28',
     title: 'Atomic Habits notes',
     content:
       'Finished reading Atomic Habits. Key ideas: get 1% better every day, stack a new habit onto an existing one, and make good habits easy.',
@@ -134,12 +152,14 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'movies',
+    savedAt: '2026-08-15',
     title: 'Movies to watch',
     content: 'Watchlist: rewatch Interstellar, Dune Part Two, 12th Fail and Oppenheimer.',
     tags: ['entertainment'],
   },
   {
     key: 'bike-service',
+    savedAt: '2026-09-02',
     title: 'Bike service',
     content:
       'Royal Enfield Classic 350 is due for service at 10,000 km. Last oil change was on 2 September at Speedway Motors.',
@@ -147,6 +167,7 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'passport',
+    savedAt: '2026-10-12',
     title: 'Passport renewal',
     content:
       'Applied for passport renewal. File number BN2071654321. Appointment at the Koramangala Passport Seva Kendra on 3 November.',
@@ -154,6 +175,7 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'guitar',
+    savedAt: '2026-07-20',
     title: 'Learning guitar',
     content:
       'Learning the chords G, C, D and Em. Practising Wonderwall for 20 minutes every day.',
@@ -161,6 +183,7 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'plants',
+    savedAt: '2026-05-30',
     title: 'Balcony plants',
     content:
       'Balcony has a money plant, tulsi and aloe vera. Water the tulsi every day and the aloe vera once a week.',
@@ -168,6 +191,7 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'reunion',
+    savedAt: '2026-10-21',
     title: 'College reunion',
     content:
       'College reunion planned for 20 December at the RV College canteen. Rahul is organising it and collecting 500 rupees per person.',
@@ -175,6 +199,7 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'sleep',
+    savedAt: '2026-08-24',
     title: 'Sleep habits',
     content:
       'Trying to be asleep by 11 pm. Stopping caffeine after 4 pm has made it much easier to fall asleep.',
@@ -182,6 +207,7 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'budget',
+    savedAt: '2026-10-01',
     title: 'Monthly budget',
     content:
       'Monthly budget: food 8,000 rupees, travel 3,000 rupees and subscriptions 1,200 rupees for Netflix and Spotify.',
@@ -189,6 +215,7 @@ export const memories: EvalMemory[] = [
   },
   {
     key: 'phone',
+    savedAt: '2026-10-24',
     title: 'New phone order',
     content:
       'Ordered a Pixel 9 from Flipkart. Order ID OD4312987766. Delivery expected on 28 October.',

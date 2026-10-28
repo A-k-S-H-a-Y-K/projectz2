@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { demoLogin, getConfig, login, signup, type AuthConfig, type AuthResponse } from '../api';
+import { useSlow, WAKING_MESSAGE } from '../useSlow';
 
 const FEATURES = [
   'Answers grounded in your own notes, with numbered citations',
@@ -13,6 +14,7 @@ export default function LoginPage({ onSignIn }: { onSignIn: (auth: AuthResponse)
   const [form, setForm] = useState({ name: '', email: '', password: '', inviteCode: '' });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const slow = useSlow(config === null || busy);
 
   useEffect(() => {
     getConfig()
@@ -60,6 +62,7 @@ export default function LoginPage({ onSignIn }: { onSignIn: (auth: AuthResponse)
       </section>
 
       <section className="card auth">
+        {slow && <p className="notice small">{WAKING_MESSAGE}</p>}
         {config?.demoEnabled && (
           <>
             <button className="primary wide" disabled={busy} onClick={() => run(demoLogin)}>

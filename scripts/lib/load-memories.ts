@@ -38,8 +38,10 @@ export async function replaceMemories(
 
   console.log(`Loading ${memories.length} memories...`);
   const keyById = new Map<number, string>();
-  for (const { key, title, content, tags } of memories) {
-    const memory = await db.memory.create({ data: { title, content, tags, userId } });
+  for (const { key, savedAt, title, content, tags } of memories) {
+    const memory = await db.memory.create({
+      data: { title, content, tags, userId, createdAt: new Date(savedAt) },
+    });
     keyById.set(memory.id, key);
     await withRetry(() => storeMemoryEmbedding(memory), key);
     await sleep(EMBEDDING_PAUSE_MS);

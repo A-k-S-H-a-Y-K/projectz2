@@ -56,6 +56,16 @@ describe('health and auth', () => {
     expect(await res.json()).toEqual({ status: 'ok' });
   });
 
+  it('rejects request bodies over 100 KB before reading them', async () => {
+    const res = await app.request(
+      '/auth/login',
+      json({ email: 'a@example.com', password: 'x'.repeat(200_000) })
+    );
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: 'Request body is too large' });
+    expect(db.user.findUnique).not.toHaveBeenCalled();
+  });
+
   it('rejects requests without a token', async () => {
     const res = await app.request('/memories');
     expect(res.status).toBe(401);

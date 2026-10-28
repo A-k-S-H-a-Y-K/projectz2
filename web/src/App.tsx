@@ -3,6 +3,7 @@ import { getSession, setUnauthorizedHandler, tokenStore, type AuthResponse, type
 import LoginPage from './pages/LoginPage';
 import AskPage from './pages/AskPage';
 import MemoriesPage from './pages/MemoriesPage';
+import { useSlow, WAKING_MESSAGE } from './useSlow';
 
 type Tab = 'ask' | 'memories';
 
@@ -11,6 +12,7 @@ export default function App() {
   // Only show a loading state if there's a saved login to check
   const [restoring, setRestoring] = useState(() => tokenStore.get() !== null);
   const [tab, setTab] = useState<Tab>('ask');
+  const slow = useSlow(restoring);
 
   const logout = useCallback(() => {
     tokenStore.clear();
@@ -34,7 +36,7 @@ export default function App() {
     setTab('ask');
   };
 
-  if (restoring) return <p className="center muted">Loading…</p>;
+  if (restoring) return <p className="center muted">{slow ? WAKING_MESSAGE : 'Loading…'}</p>;
   if (!session) return <LoginPage onSignIn={signIn} />;
 
   return (
