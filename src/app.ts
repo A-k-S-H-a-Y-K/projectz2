@@ -4,6 +4,7 @@ import { logger } from 'hono/logger'
 import { prettyJSON } from 'hono/pretty-json'
 import { compress } from 'hono/compress'
 import { secureHeaders } from 'hono/secure-headers'
+import { bodyLimit } from 'hono/body-limit'
 
 import auth from './routes/auth.js'
 import memories from './routes/memories.js'
@@ -25,6 +26,14 @@ app.use('*', prettyJSON())
 app.use('*', compress())
 app.use('*', secureHeaders())
 app.use('*', cors({ origin: allowedOrigins, credentials: true }))
+// The largest valid request (an 8,000-character memory with tags) is well under this
+app.use(
+  '*',
+  bodyLimit({
+    maxSize: 100 * 1024,
+    onError: (c) => c.json({ error: 'Request body is too large' }, 413),
+  })
+)
 
 // Routes
 app.route('/auth', auth)

@@ -93,6 +93,9 @@ ai.post('/search/stream', zValidator('json', searchSchema), async (c) => {
     'Memory search'
   );
 
+  // The AI SDK reports a timeout as a plain AbortError, so check this signal to tell them apart
+  const timeout = AbortSignal.timeout(ANSWER_TIMEOUT_MS);
+
   return streamSSE(
     c,
     async (stream) => {
@@ -108,7 +111,7 @@ ai.post('/search/stream', zValidator('json', searchSchema), async (c) => {
         await stream.writeSSE({ event: 'token', data: JSON.stringify({ text: answer }) });
       } else {
         // Give up after the answer timeout, or as soon as the client disconnects
-        const signal = AbortSignal.any([c.req.raw.signal, AbortSignal.timeout(ANSWER_TIMEOUT_MS)]);
+        const signal = AbortSignal.any([c.req.raw.signal, timeout]);
         for await (const text of streamAnswer(query, usable, { includeGeneralKnowledge }, signal)) {
           answer += text;
           await stream.writeSSE({ event: 'token', data: JSON.stringify({ text }) });
@@ -122,7 +125,7 @@ ai.post('/search/stream', zValidator('json', searchSchema), async (c) => {
     },
     async (error, stream) => {
       console.error('Streaming answer failed:', error);
-      const timedOut = error.name === 'TimeoutError';
+      const timedOut = timeout.aborted || error.name === 'TimeoutError';
       await stream.writeSSE({
         event: 'error',
         data: JSON.stringify({
