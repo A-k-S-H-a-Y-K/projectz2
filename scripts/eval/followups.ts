@@ -11,10 +11,12 @@ import { writeFile } from 'node:fs/promises';
 import { db } from '../../src/lib/db.js';
 import { rewriteFollowUp, searchMemories } from '../../src/services/ai.js';
 import { loadMemories, sleep, withRetry } from '../lib/load-memories.js';
+import { cacheReranking } from '../lib/rerank-cache.js';
 import { memories } from './dataset.js';
 import type { ConversationTurn } from '../../src/types/index.js';
 
 process.env.LOG_SEARCH = 'false';
+await cacheReranking();
 
 const EVAL_EMAIL = 'eval@memory-assistant.local';
 const CHAT_PAUSE_MS = 5000;

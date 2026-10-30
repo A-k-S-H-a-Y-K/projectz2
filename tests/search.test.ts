@@ -107,6 +107,18 @@ describe('searchMemories with reranking', () => {
     );
   });
 
+  it('uses the reranker set in RERANK_MODEL', async () => {
+    process.env.RERANK_MODEL = 'pinecone-rerank-v0';
+    mocks.rerank.mockResolvedValue({ data: [{ index: 0, score: 0.9 }] });
+
+    await searchMemories('What does Dad take?', 1);
+
+    expect(mocks.rerank).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'pinecone-rerank-v0' })
+    );
+    delete process.env.RERANK_MODEL;
+  });
+
   it('reranks long memories piece by piece and scores them by their best piece', async () => {
     const longNote = memory({
       id: 2,
@@ -163,7 +175,26 @@ describe('searchMemories with reranking', () => {
     expect(results.map((m) => [m.id, m.strongMatch, m.rerankScore])).toEqual([[1, true, 0.02]]);
   });
 
-  it('falls back to hybrid results when reranking fails', async () => {
+  it('uses the backup reranker, with its own cutoff, when the first one fails', async () => {
+    mocks.rerank.mockImplementation(async ({ model }: { model: string }) => {
+      if (model === 'bge-reranker-v2-m3') throw new Error('429 monthly quota exceeded');
+      // pinecone-rerank-v0 scores lower; its cutoff is 0.005
+      return { data: [{ index: 0, score: 0.02 }, { index: 1, score: 0.001 }] };
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const results = await searchMemories('What medicine does Dad take?', 1);
+
+    expect(results.map((m) => [m.id, m.rerankScore])).toEqual([[1, 0.02]]);
+    expect(mocks.rerank).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('trying pinecone-rerank-v0'),
+      expect.stringContaining('429')
+    );
+    warn.mockRestore();
+  });
+
+  it('falls back to hybrid results when both rerankers fail', async () => {
     mocks.rerank.mockRejectedValue(new Error('429 quota exceeded'));
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
@@ -175,7 +206,7 @@ describe('searchMemories with reranking', () => {
       [2, null],
     ]);
     expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('Reranking failed'),
+      expect.stringContaining('using hybrid search results'),
       expect.stringContaining('429')
     );
     warn.mockRestore();
@@ -187,6 +218,8 @@ describe('searchMemories with reranking', () => {
     await expect(
       searchMemories('anything', 1, { fallbackOnRerankError: false })
     ).rejects.toThrow('429');
+    // Evaluations measure one reranker, so the backup isn't tried
+    expect(mocks.rerank).toHaveBeenCalledTimes(1);
   });
 
   it('skips the reranker when RERANK_ENABLED is false', async () => {
