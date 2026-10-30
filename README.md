@@ -11,6 +11,8 @@ This pattern is called retrieval-augmented generation (RAG).
 then click "Explore sample notes". The free server sleeps when unused, so the first request
 can take about a minute.
 
+![Demo: asking questions about the sample notes, with cited answers](docs/demo.gif)
+
 The repo contains the API (Hono, TypeScript) and a React frontend in [`web/`](web).
 
 ```http
