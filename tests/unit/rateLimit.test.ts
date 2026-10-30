@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { Hono } from 'hono';
-import { createRateLimiter, rateLimit } from '../../src/lib/rateLimit.js';
+import { clientIp, createRateLimiter, rateLimit } from '../../src/lib/rateLimit.js';
 
 describe('createRateLimiter', () => {
   it('allows up to the limit, then blocks until the window ends', () => {
@@ -34,5 +34,24 @@ describe('rateLimit middleware', () => {
     expect(blocked.status).toBe(429);
     expect(blocked.headers.get('Retry-After')).toBe('60');
     expect(await blocked.json()).toEqual({ error: 'Slow down', retryAfterSeconds: 60 });
+  });
+});
+
+describe('clientIp', () => {
+  const app = new Hono().get('/', (c) => c.text(clientIp(c)));
+  const ipFor = async (headers: Record<string, string>) => (await app.request('/', { headers })).text();
+
+  afterEach(() => {
+    delete process.env.TRUST_PROXY;
+  });
+
+  it("uses the first X-Forwarded-For entry behind a proxy, where Render puts the client's address", async () => {
+    process.env.TRUST_PROXY = 'true';
+
+    expect(await ipFor({ 'X-Forwarded-For': '203.0.113.7, 10.0.0.1, 10.0.0.2' })).toBe('203.0.113.7');
+  });
+
+  it('ignores X-Forwarded-For unless the proxy is trusted', async () => {
+    expect(await ipFor({ 'X-Forwarded-For': '203.0.113.7' })).toBe('unknown');
   });
 });

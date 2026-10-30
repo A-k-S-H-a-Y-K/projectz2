@@ -47,12 +47,13 @@ export function rateLimit(options: {
 }
 
 // The caller's IP address. Behind a hosting provider's proxy (TRUST_PROXY=true), the
-// connecting address is the proxy, so the client's address is taken from the last entry
-// of X-Forwarded-For: the one the proxy added itself. Earlier entries are ignored
-// because the client can write anything there.
+// connecting address is the proxy, so the client's address is taken from X-Forwarded-For.
+// Render puts the client's address first. The last entry, tried at first, turned out to be
+// one of Render's own proxies, which changed between requests, so per-visitor limits never
+// applied on the live site.
 export function clientIp(c: Context): string {
   if (process.env.TRUST_PROXY === 'true') {
-    const forwarded = c.req.header('x-forwarded-for')?.split(',').at(-1)?.trim();
+    const forwarded = c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
     if (forwarded) return forwarded;
   }
   try {
