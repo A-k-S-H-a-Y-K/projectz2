@@ -13,6 +13,13 @@ can take about a minute.
 
 ![Demo: asking questions about the sample notes, with cited answers](docs/demo.gif)
 
+**Results at a glance**, on 102 held-out questions no setting was tuned on
+([details](#held-out-test-set-final-numbers)):
+
+| Right note first (Hit@1) | Look-alike questions rejected | Unsupported claims | Tests |
+|---|---|---|---|
+| **92%** | **10% → 75%** with reranking | **0** (LLM-graded, flags checked by hand) | **111**, with CI |
+
 The repo contains the API (Hono, TypeScript) and a React frontend in [`web/`](web).
 
 ```http
@@ -38,7 +45,7 @@ POST /ai/search
   *"What medicine does my mother take?"*. On 102 held-out questions, close calls correctly
   rejected went from 10% to 75%
 - **Measured, not guessed**: final numbers come from a **held-out test set** of 102 questions
-  no setting was tuned on, 32 of them written blind by someone who didn't build the search.
+  no setting was tuned on, 32 of them in casual user style.
   Also a retrieval evaluation, an answer-quality evaluation graded by an LLM whose own accuracy
   is checked on planted mistakes, and a comparison of three embedding models and two rerankers
 - **Grounded answers with citations**: the answer cites its sources as `[1]`, `[2]`, and each
@@ -138,11 +145,16 @@ There are two sets of questions:
 ### Held-out test set (final numbers)
 
 The test set has two groups, reported separately:
-- **Blind (32):** written by someone who didn't build the search and never saw the tuning
-  questions, in their own style: *"act shifting ticket no"*, *"dad bp tablet name"*,
-  *"passport appointment kahan hai"*. 6 turned out to ask the same fact as a tuning
-  question, so they're left out of the headline. That leaves **26 truly unseen questions**.
-- **Informed (70):** written knowing how search works, avoiding both other sets.
+- **Casual style (32):** written by a separate LLM chat given the notes and a style
+  brief, the way people really type: *"act shifting ticket no"*, *"dad bp tablet name"*,
+  *"passport appointment kahan hai"*. It had seen a few tuning questions as examples, and 6
+  of its questions turned out to ask the same fact as a tuning question, so they're left out
+  of the headline. That leaves **26 questions**.
+- **Informed (70):** written with an LLM's help, knowing how search works, avoiding both
+  other sets.
+
+No question was written by someone outside the project, so these aren't truly blind: they
+test unseen wording, not an outsider's idea of what to ask.
 
 **Retrieval** (`npm run eval:test`, [`results-test.md`](scripts/eval/results-test.md)):
 
@@ -157,8 +169,8 @@ The test set has two groups, reported separately:
 
 | Group | Questions | Right note first | Rejects no-answer questions | Answers fully correct | Faithful |
 |---|---|---|---|---|---|
-| **Blind, unseen (headline)** | 26 | **94%** | **75%** | **92%** | **100%** |
-| Blind, overlapping tuning | 6 | 80% | 100% | 83% | 100% |
+| **Casual style, not overlapping (headline)** | 26 | **94%** | **75%** | **92%** | **100%** |
+| Casual style, overlapping tuning | 6 | 80% | 100% | 83% | 100% |
 | Informed | 70 | 92% | 85% | 93% | 99% |
 | All | 102 | 92% | 83% | 92% | 99% |
 
@@ -182,8 +194,8 @@ the same picture.
   - 2 because the model missed a detail in the long Europe note it was given: the budget
     left and the nights in Lucerne.
 - **The grader made 2 small mistakes:** it marked those 2 "not found" replies as an
-  unsupported claim and a wrong citation, although they make no claim and cite nothing. By
-  hand, faithfulness and citations are 100%; the table shows what was measured.
+  unsupported claim and a wrong citation, although they make no claim and cite nothing. With
+  those 2 corrected, faithfulness and citations are 100%; the table shows what was measured.
 - No answer stated a fact the notes don't support.
 
 **Latency**, measured from a laptop in India (Pinecone is in the US):
@@ -345,7 +357,8 @@ other 4 follow-ups contained a telling word, such as "refilled" or "collecting".
 topic was left unchanged, and *"What is her phone number?"* (after a question about the
 mentor) was rewritten to *"What is Priya's phone number?"* and still returned nothing, so
 rewriting didn't make search find notes that aren't there. The first answers in these
-conversations were written by hand, so real conversations will be messier.
+conversations were written in advance rather than generated, so real conversations will be
+messier.
 
 **Limitations of all the evaluations:** the notes are made up, and every question is about
 the same 29 notes, so the test set measures unseen *questions*, not unseen *notes*. 102
@@ -686,7 +699,7 @@ web/                    # React + Vite frontend
 - [x] Retrieval evaluation
 - [x] Reranking with a cross-encoder, with a backup reranker
 - [x] Model comparison (embedding models and rerankers)
-- [x] Held-out test set, with blind-written questions and latency percentiles
+- [x] Held-out test set, with casual-style questions and latency percentiles
 - [x] Splitting long notes into pieces for reranking
 - [x] Answer-quality evaluation (correctness, faithfulness, citation and date accuracy), with a check of the grader itself
 - [x] Follow-up questions (rewritten using the last 3 turns)

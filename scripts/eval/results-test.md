@@ -13,8 +13,8 @@ Run on 2026-10-30 with 29 memories and 102 questions (32 paraphrase, 6 exact, 4 
 
 | Group | Questions | Hit@1 | Recall@5 | No-answer accuracy | Close-call accuracy |
 |---|---|---|---|---|---|
-| Blind, unseen (headline) | 26 | 94% | 94% | 75% | 71% |
-| Blind, overlapping a tuning question | 6 | 80% | 80% | 100% | 100% |
+| Casual style, not overlapping (headline) | 26 | 94% | 94% | 75% | 71% |
+| Casual style, overlapping a tuning question | 6 | 80% | 80% | 100% | 100% |
 | Informed | 70 | 92% | 92% | 85% | 75% |
 | All test questions | 102 | 92% | 92% | 83% | 75% |
 

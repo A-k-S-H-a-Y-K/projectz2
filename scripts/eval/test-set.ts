@@ -4,25 +4,25 @@
 // results-test.md and answers-test.md.
 //
 // Two groups, reported separately:
-// - blind: written by a person who didn't build the search and never saw the tuning
-//   questions, in their own casual style. Some happen to ask the same fact as a tuning
-//   question; those are marked and left out of the headline numbers.
-// - informed: written by the developer side, knowing how search works but avoiding the
-//   tuning questions and the blind ones.
+// - casual: written in casual user style by a separate LLM chat, given the notes and a style
+//   brief. It had seen a few tuning questions, and 6 of its questions ask the same fact as a
+//   tuning question; those are marked and left out of the headline numbers.
+// - informed: written with an LLM's help, knowing how search works, avoiding the tuning
+//   questions and the casual ones.
 import type { EvalQuestion } from './dataset.js';
 
 export interface TestQuestion extends EvalQuestion {
-  source: 'blind' | 'informed';
+  source: 'casual' | 'informed';
   // Asks the same fact as a tuning question, so it isn't truly unseen
   overlapsTuning?: true;
 }
 
-const blind = (
+const casual = (
   question: string,
   expected: string[],
   kind: EvalQuestion['kind'],
   overlapsTuning?: true
-): TestQuestion => ({ question, expected, kind, source: 'blind', overlapsTuning });
+): TestQuestion => ({ question, expected, kind, source: 'casual', overlapsTuning });
 
 const informed = (
   question: string,
@@ -31,39 +31,39 @@ const informed = (
 ): TestQuestion => ({ question, expected, kind, source: 'informed' });
 
 export const testQuestions: TestQuestion[] = [
-  // --- Blind (32) ---
-  blind('when is my pixel getting delivered', ['phone'], 'paraphrase'),
-  blind('how much do i have to pay rahul for the reunion', ['reunion'], 'paraphrase'),
-  blind("what time is the muhurtham on meera's wedding day", ['wedding-plan'], 'long-detail'),
-  blind('whats my seat no on the train back from mysuru', ['wedding-plan'], 'long-detail'),
-  blind('how much do i still owe the dance teacher', ['wedding-plan'], 'long-detail', true),
-  blind("who's going to get the jadai flowers in the morning", ['wedding-plan'], 'long-detail'),
-  blind('is there a lift at the mantapa for ajji', ['wedding-plan'], 'long-detail'),
-  blind('amazon interview date??', ['interview'], 'paraphrase'),
-  blind('who has my spare keys', ['flat-move'], 'long-detail', true),
-  blind('act shifting ticket no', ['flat-move'], 'long-detail'),
-  blind('how much is rao cutting from my old deposit', ['flat-move'], 'long-detail', true),
-  blind('passport appointment kahan hai', ['passport'], 'paraphrase'),
-  blind('whats my 5k time right now', ['running'], 'paraphrase'),
-  blind('how many weeks of the vit d capsule', ['doctor-visit'], 'paraphrase'),
-  blind('which day is legs', ['gym-routine'], 'paraphrase'),
-  blind('cake came out flat last time why', ['cake-recipe'], 'long-detail', true),
-  blind("can i make amma's cake without an oven", ['cake-recipe'], 'long-detail', true),
-  blind('premier inn booking ref', ['europe-trip'], 'long-detail'),
-  blind('how much was jungfraujoch with the pass', ['europe-trip'], 'long-detail'),
-  blind('how much budget is left for europe', ['europe-trip'], 'long-detail'),
-  blind('dad bp tablet name', ['dad-medicine'], 'paraphrase'),
-  blind('that fish curry place in goa what was it called', ['goa-trip'], 'paraphrase'),
-  blind('till when is the laptop warranty', ['laptop'], 'paraphrase'),
-  blind('whats my car insurance policy number', [], 'close-call', true),
-  blind('when is my next dentist appointment', [], 'unanswerable'),
-  blind('how much did the goa trip cost', [], 'close-call'),
-  blind('which gym did i join', [], 'close-call'),
-  blind("what's my salary at zentrix", [], 'close-call'),
-  blind("how much was meera's reception lehenga", [], 'close-call'),
-  blind("deepa's phone number?", [], 'close-call'),
-  blind("arjun's pnr for the shatabdi", [], 'close-call'),
-  blind('whats the flight number for the goa trip', [], 'close-call'),
+  // --- Casual style (32) ---
+  casual('when is my pixel getting delivered', ['phone'], 'paraphrase'),
+  casual('how much do i have to pay rahul for the reunion', ['reunion'], 'paraphrase'),
+  casual("what time is the muhurtham on meera's wedding day", ['wedding-plan'], 'long-detail'),
+  casual('whats my seat no on the train back from mysuru', ['wedding-plan'], 'long-detail'),
+  casual('how much do i still owe the dance teacher', ['wedding-plan'], 'long-detail', true),
+  casual("who's going to get the jadai flowers in the morning", ['wedding-plan'], 'long-detail'),
+  casual('is there a lift at the mantapa for ajji', ['wedding-plan'], 'long-detail'),
+  casual('amazon interview date??', ['interview'], 'paraphrase'),
+  casual('who has my spare keys', ['flat-move'], 'long-detail', true),
+  casual('act shifting ticket no', ['flat-move'], 'long-detail'),
+  casual('how much is rao cutting from my old deposit', ['flat-move'], 'long-detail', true),
+  casual('passport appointment kahan hai', ['passport'], 'paraphrase'),
+  casual('whats my 5k time right now', ['running'], 'paraphrase'),
+  casual('how many weeks of the vit d capsule', ['doctor-visit'], 'paraphrase'),
+  casual('which day is legs', ['gym-routine'], 'paraphrase'),
+  casual('cake came out flat last time why', ['cake-recipe'], 'long-detail', true),
+  casual("can i make amma's cake without an oven", ['cake-recipe'], 'long-detail', true),
+  casual('premier inn booking ref', ['europe-trip'], 'long-detail'),
+  casual('how much was jungfraujoch with the pass', ['europe-trip'], 'long-detail'),
+  casual('how much budget is left for europe', ['europe-trip'], 'long-detail'),
+  casual('dad bp tablet name', ['dad-medicine'], 'paraphrase'),
+  casual('that fish curry place in goa what was it called', ['goa-trip'], 'paraphrase'),
+  casual('till when is the laptop warranty', ['laptop'], 'paraphrase'),
+  casual('whats my car insurance policy number', [], 'close-call', true),
+  casual('when is my next dentist appointment', [], 'unanswerable'),
+  casual('how much did the goa trip cost', [], 'close-call'),
+  casual('which gym did i join', [], 'close-call'),
+  casual("what's my salary at zentrix", [], 'close-call'),
+  casual("how much was meera's reception lehenga", [], 'close-call'),
+  casual("deepa's phone number?", [], 'close-call'),
+  casual("arjun's pnr for the shatabdi", [], 'close-call'),
+  casual('whats the flight number for the goa trip', [], 'close-call'),
 
   // --- Informed (70) ---
   // Worded differently from the memory

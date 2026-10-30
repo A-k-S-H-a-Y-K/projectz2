@@ -15,11 +15,11 @@ export const setLabel = isTestSet ? 'held-out test set' : 'tuning set';
 // results.md for the tuning set, results-test.md for the test set
 export const reportFile = (name: string) => (isTestSet ? `${name}-test.md` : `${name}.md`);
 
-// Groups of test questions reported separately. The first is the headline: written blind and
-// not overlapping any tuning question.
+// Groups of test questions reported separately. The first is the headline: written in casual
+// user style and // not overlapping any tuning question.
 export const testGroups: [string, (q: SetQuestion) => boolean][] = [
-  ['Blind, unseen (headline)', (q) => q.source === 'blind' && !q.overlapsTuning],
-  ['Blind, overlapping a tuning question', (q) => q.source === 'blind' && !!q.overlapsTuning],
+  ['Casual style, not overlapping (headline)', (q) => q.source === 'casual' && !q.overlapsTuning],
+  ['Casual style, overlapping a tuning question', (q) => q.source === 'casual' && !!q.overlapsTuning],
   ['Informed', (q) => q.source === 'informed'],
   ['All test questions', () => true],
 ];

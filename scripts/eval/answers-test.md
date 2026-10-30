@@ -18,8 +18,8 @@ Run on 2026-10-30 with 102 questions. Answers by gemini-flash-lite-latest, grade
 
 | Group | Questions | Correct | Faithful | Citations | Dates | All |
 |---|---|---|---|---|---|---|
-| Blind, unseen (headline) | 26 | 92% | 100% | 96% | 100% | 92% |
-| Blind, overlapping a tuning question | 6 | 83% | 100% | 100% | 100% | 83% |
+| Casual style, not overlapping (headline) | 26 | 92% | 100% | 96% | 100% | 92% |
+| Casual style, overlapping a tuning question | 6 | 83% | 100% | 100% | 100% | 83% |
 | Informed | 70 | 93% | 99% | 100% | 100% | 93% |
 | All test questions | 102 | 92% | 99% | 99% | 100% | 92% |
 
