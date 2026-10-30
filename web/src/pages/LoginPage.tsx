@@ -69,7 +69,7 @@ export default function LoginPage({ onSignIn }: { onSignIn: (auth: AuthResponse)
               Try the demo
             </button>
             <p className="muted small">
-              Explore 26 sample notes and ask questions about them. No account needed.
+              Explore 29 sample notes and ask questions about them. No account needed.
             </p>
             <div className="divider">or</div>
           </>

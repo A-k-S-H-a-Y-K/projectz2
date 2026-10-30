@@ -18,6 +18,8 @@ export function scoredMemory(overrides: Partial<ScoredMemory> = {}): ScoredMemor
   return {
     ...memory(overrides),
     score: 0.7,
+    rerankScore: null,
+    strongMatch: false,
     matchedBy: ['semantic'],
     suspicious: false,
     ...overrides,

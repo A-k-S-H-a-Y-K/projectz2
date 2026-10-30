@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { askStream, type Reference } from '../api';
+import { askStream, type Reference, type Turn } from '../api';
 import { formatDate, splitAnswer } from '../format';
 
 // Questions that match the demo account's sample notes
@@ -12,8 +12,16 @@ const DEMO_QUESTIONS = [
 
 type Status = 'idle' | 'searching' | 'answering' | 'done';
 
+// How many earlier questions and answers are sent with a follow-up (the API accepts up to 3)
+const HISTORY_TURNS = 3;
+
 export default function AskPage({ demo }: { demo: boolean }) {
   const [query, setQuery] = useState('');
+  // The question being answered, and what the server searched for after rewriting a follow-up
+  const [asked, setAsked] = useState('');
+  const [searchedFor, setSearchedFor] = useState('');
+  // Finished questions and answers before the current one, oldest first
+  const [earlier, setEarlier] = useState<Turn[]>([]);
   const [status, setStatus] = useState<Status>('idle');
   const [answer, setAnswer] = useState('');
   const [references, setReferences] = useState<Reference[]>([]);
@@ -31,7 +39,20 @@ export default function AskPage({ demo }: { demo: boolean }) {
     controller.current?.abort();
     controller.current = new AbortController();
 
-    setQuery(question);
+    // A finished answer becomes part of the conversation the next question follows up on.
+    // Only the part from the user's notes is kept: general knowledge isn't needed to work out
+    // what a follow-up refers to.
+    const history =
+      status === 'done' && answer
+        ? [...earlier, { question: asked, answer: splitAnswer(answer).notes.slice(0, 4000) }].slice(
+            -HISTORY_TURNS
+          )
+        : earlier;
+    setEarlier(history);
+
+    setQuery('');
+    setAsked(question);
+    setSearchedFor('');
     setStatus('searching');
     setAnswer('');
     setReferences([]);
@@ -42,8 +63,9 @@ export default function AskPage({ demo }: { demo: boolean }) {
     try {
       await askStream(
         question,
-        includeGeneral,
+        { includeGeneralKnowledge: includeGeneral, history },
         {
+          onQuery: setSearchedFor,
           onReferences: (refs) => {
             setReferences(refs);
             setStatus('answering');
@@ -61,6 +83,19 @@ export default function AskPage({ demo }: { demo: boolean }) {
     }
   };
 
+  const newConversation = () => {
+    controller.current?.abort();
+    setEarlier([]);
+    setAsked('');
+    setSearchedFor('');
+    setStatus('idle');
+    setAnswer('');
+    setReferences([]);
+    setCited([]);
+    setActiveCitation(null);
+    setError(null);
+  };
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
     ask(query);
@@ -72,13 +107,14 @@ export default function AskPage({ demo }: { demo: boolean }) {
   };
 
   const busy = status === 'searching' || status === 'answering';
+  const inConversation = earlier.length > 0 || status === 'done';
 
   return (
     <div className="stack">
       <form onSubmit={submit} className="ask-form">
         <input
           autoFocus
-          placeholder="Ask a question about your memories…"
+          placeholder={inConversation ? 'Ask a follow-up question…' : 'Ask a question about your memories…'}
           value={query}
           maxLength={1000}
           onChange={(e) => setQuery(e.target.value)}
@@ -88,15 +124,22 @@ export default function AskPage({ demo }: { demo: boolean }) {
         </button>
       </form>
 
-      <label className="toggle small">
-        <input
-          type="checkbox"
-          checked={includeGeneral}
-          onChange={(e) => setIncludeGeneral(e.target.checked)}
-        />
-        Include general knowledge
-        <span className="muted">(shown separately, never mixed with your notes)</span>
-      </label>
+      <div className="ask-options">
+        <label className="toggle small">
+          <input
+            type="checkbox"
+            checked={includeGeneral}
+            onChange={(e) => setIncludeGeneral(e.target.checked)}
+          />
+          Include general knowledge
+          <span className="muted">(shown separately, never mixed with your notes)</span>
+        </label>
+        {inConversation && (
+          <button type="button" className="link small push-right" onClick={newConversation}>
+            New conversation
+          </button>
+        )}
+      </div>
 
       {demo && status === 'idle' && !answer && (
         <div className="examples">
@@ -106,6 +149,24 @@ export default function AskPage({ demo }: { demo: boolean }) {
               {question}
             </button>
           ))}
+        </div>
+      )}
+
+      {earlier.map((turn, i) => (
+        <section key={i} className="card turn small">
+          <strong>{turn.question}</strong>
+          <p className="muted">{turn.answer.replace(/\s*\[\d+\]/g, '')}</p>
+        </section>
+      ))}
+
+      {asked && (
+        <div>
+          <strong>{asked}</strong>
+          {searchedFor && searchedFor !== asked && (
+            <p className="muted small" title="Your follow-up, rewritten using the conversation so it can be searched">
+              Searched for: “{searchedFor}”
+            </p>
+          )}
         </div>
       )}
 
@@ -251,8 +312,16 @@ function SourceCard({ reference, cited, active }: { reference: Reference; cited:
       <p>{reference.content}</p>
 
       <footer className="meta small muted">
+        {reference.rerankScore !== null && (
+          <span title="How well the reranker judged this note answers the question">
+            {Math.round(reference.rerankScore * 100)}% relevant
+          </span>
+        )}
         {reference.score !== null && <span>{Math.round(reference.score * 100)}% similar</span>}
-        <span>found by {reference.matchedBy.join(' + ')} search</span>
+        <span>
+          found by {reference.matchedBy.join(' + ')} search
+          {reference.rerankScore !== null && ', reranked'}
+        </span>
         {cited && <span className="tag-cited">cited</span>}
       </footer>
     </article>

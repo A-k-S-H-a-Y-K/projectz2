@@ -280,6 +280,24 @@ button.danger {
   display: inline;
 }
 
+.ask-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.turn p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
 .toggle {
   display: flex;
   flex-wrap: wrap;
