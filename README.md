@@ -1,6 +1,6 @@
 # Memory Assistant
 
-[![CI](https://github.com/A-k-S-H-a-Y-K/projectz2/actions/workflows/ci.yml/badge.svg)](https://github.com/A-k-S-H-a-Y-K/projectz2/actions/workflows/ci.yml)
+[![CI](https://github.com/A-k-S-H-a-Y-K/memory-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/A-k-S-H-a-Y-K/memory-assistant/actions/workflows/ci.yml)
 
 A personal AI assistant that answers questions using **your own notes**. Save memories
 (notes with a title and tags), then ask questions in plain English. The API finds the most
@@ -478,8 +478,8 @@ Found by the evaluations and by asking the demo account questions by hand.
 ### 1. Install
 
 ```bash
-git clone https://github.com/A-k-S-H-a-Y-K/projectz2.git
-cd projectz2
+git clone https://github.com/A-k-S-H-a-Y-K/memory-assistant.git
+cd memory-assistant
 npm install
 ```
 
