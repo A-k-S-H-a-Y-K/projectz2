@@ -29,3 +29,9 @@ lerna-debug.log*
 
 # misc
 .DS_Store
+
+# Personal project notes, kept local
+operations/
+
+# Evaluation caches (rerank results), saved to stay within free-tier limits
+scripts/eval/.cache/

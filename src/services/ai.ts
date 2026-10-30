@@ -1,4 +1,4 @@
-import { Pinecone } from '@pinecone-database/pinecone';
+import { Pinecone, type RerankOptions } from '@pinecone-database/pinecone';
 import { GoogleGenAI } from '@google/genai';
 import type { Memory } from '@prisma/client';
 import { db } from '../lib/db.js';
@@ -46,17 +46,41 @@ const minRelevanceScore = () => Number(process.env.MIN_RELEVANCE_SCORE ?? 0.55);
 // Two-stage retrieval: hybrid search gathers up to RERANK_CANDIDATES memories, then Pinecone's
 // hosted reranker reads the question and each memory together and scores how well the memory
 // answers it. Unlike similarity, this can tell "Dad's medicine" from a question about Mom's.
-// Rerank scores below MIN_RERANK_SCORE are treated as unrelated. 0.05 kept every close call
-// and unanswerable question empty while losing the fewest real answers in the evaluation
-// sweep (see scripts/eval/results.md).
-const RERANK_MODEL = 'bge-reranker-v2-m3';
+//
+// Pinecone's free plan has two rerankers, each allowing 500 requests a month. They tied in the
+// model comparison (scripts/eval/models.md) once each had its own cutoff, since they score on
+// different scales, so the second is used when the first fails, for example when its monthly
+// quota runs out. Scores below a reranker's cutoff are treated as unrelated: each cutoff kept
+// the most close calls and unanswerable questions empty while losing the fewest real answers.
+const RERANKERS = [
+  { model: 'bge-reranker-v2-m3', minScore: 0.05 },
+  { model: 'pinecone-rerank-v0', minScore: 0.005 },
+];
+// The rerankers to try, in order. RERANK_MODEL picks a single one, for the evaluation scripts.
+function rerankersToTry() {
+  const only = process.env.RERANK_MODEL;
+  if (!only) return RERANKERS;
+  return [RERANKERS.find((r) => r.model === only) ?? { model: only, minScore: 0.05 }];
+}
 const RERANK_CANDIDATES = 20;
-// About 400 tokens, well inside the reranker's ~1,000-token limit for question plus document
+// About 400 tokens, inside the limit for question plus document of both free rerankers
+// (1,024 tokens for bge-reranker-v2-m3, 512 for pinecone-rerank-v0)
 const RERANK_CHUNK_CHARS = 1500;
 // The most documents Pinecone accepts in one rerank request
 const RERANK_MAX_DOCUMENTS = 100;
 export const isRerankEnabled = () => process.env.RERANK_ENABLED !== 'false';
-export const minRerankScore = () => Number(process.env.MIN_RERANK_SCORE ?? 0.05);
+// A reranker's cutoff. MIN_RERANK_SCORE overrides it for every reranker (the evaluation
+// scripts set it to 0 to see all scores).
+export const minRerankScore = (model = RERANKERS[0].model) =>
+  process.env.MIN_RERANK_SCORE !== undefined
+    ? Number(process.env.MIN_RERANK_SCORE)
+    : (RERANKERS.find((r) => r.model === model)?.minScore ?? 0.05);
+
+// The evaluation scripts swap this for a cached version: Pinecone's free plan allows only 500
+// rerank requests a month per model, and the scripts ask the same questions many times
+export const reranker = {
+  rerank: (options: RerankOptions) => pinecone.inference.rerank(options),
+};
 
 // Gemini tunes embeddings differently for stored documents and search queries
 type EmbeddingTask = 'RETRIEVAL_DOCUMENT' | 'RETRIEVAL_QUERY';
@@ -240,11 +264,18 @@ export async function searchMemories(
       0,
       RERANK_CANDIDATES
     );
-    try {
-      return await rerankCandidates(query, userId, candidateIds, topK, similarity, keyword);
-    } catch (error) {
-      if (!fallbackOnRerankError) throw error;
-      console.warn('Reranking failed, using hybrid search results instead:', String(error));
+    // Without fallbacks (in the evaluation scripts) only the first reranker is used, so a
+    // failure can't quietly change which model is measured
+    const models = fallbackOnRerankError ? rerankersToTry() : rerankersToTry().slice(0, 1);
+    for (const [i, { model }] of models.entries()) {
+      try {
+        return await rerankCandidates(model, query, userId, candidateIds, topK, similarity, keyword);
+      } catch (error) {
+        if (!fallbackOnRerankError) throw error;
+        const next =
+          i + 1 < models.length ? `trying ${models[i + 1].model}` : 'using hybrid search results';
+        console.warn(`Reranking with ${model} failed, ${next} instead:`, String(error));
+      }
     }
   }
 
@@ -282,6 +313,7 @@ function strongMatches(similarity: Map<number, number>, allTerms: Set<number>): 
 // Strong matches are kept anyway, which recovers those without letting back near misses
 // like "Dad's medicine" for a question about Mom's.
 async function rerankCandidates(
+  model: string,
   query: string,
   userId: number,
   candidateIds: number[],
@@ -307,8 +339,8 @@ async function rerankCandidates(
     }
   });
 
-  const result = await pinecone.inference.rerank({
-    model: RERANK_MODEL,
+  const result = await reranker.rerank({
+    model,
     query,
     documents: documents.slice(0, RERANK_MAX_DOCUMENTS),
     returnDocuments: false,
@@ -320,13 +352,13 @@ async function rerankCandidates(
   if (shouldLogSearch()) {
     const sorted = [...ranked].sort((a, b) => b.score - a.score);
     console.log(
-      `Rerank scores (${documents.length} pieces): ` +
+      `Rerank scores (${model}, ${documents.length} pieces): ` +
         (sorted.map((r) => `#${ids[r.index]}=${r.score.toFixed(3)}`).join(', ') || 'none')
     );
   }
 
   const strong = strongMatches(similarity, keyword.allTerms);
-  const kept = selectReranked(ids, ranked, minRerankScore(), topK, strong);
+  const kept = selectReranked(ids, ranked, minRerankScore(model), topK, strong);
   return toScoredMemories(
     kept.map(({ id }) => id),
     byId,

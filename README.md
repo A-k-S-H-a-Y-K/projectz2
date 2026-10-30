@@ -29,9 +29,12 @@ POST /ai/search
   exact names or rare words still match
 - **Reranking**: a cross-encoder reranker re-scores the top 20 candidates by reading the
   question and each note together, so a note about Dad's medicine is no longer returned for
-  *"What medicine does my mother take?"*. Measured on close-call questions: 0% → 83%
-- **Measured, not guessed**: a retrieval evaluation (49 questions) and an answer-quality
-  evaluation (52 questions, graded by an LLM whose own accuracy is checked on planted mistakes)
+  *"What medicine does my mother take?"*. On 102 held-out questions, close calls correctly
+  rejected went from 10% to 75%
+- **Measured, not guessed**: final numbers come from a **held-out test set** of 102 questions
+  no setting was tuned on, 32 of them written blind by someone who didn't build the search.
+  Also a retrieval evaluation, an answer-quality evaluation graded by an LLM whose own accuracy
+  is checked on planted mistakes, and a comparison of three embedding models and two rerankers
 - **Grounded answers with citations**: the answer cites its sources as `[1]`, `[2]`, and each
   returned memory says whether it was cited and how similar it is to the question. Answers are
   written in a friendly tone, but may only use facts from the memories.
@@ -89,7 +92,7 @@ flowchart LR
    (`bge-reranker-v2-m3`, a cross-encoder). An embedding sums up a note once, before any
    question is asked; the reranker reads the question and the note *together*, so it can tell
    that a note about Dad's medicine doesn't answer a question about Mom's. Candidates scoring
-   below `MIN_RERANK_SCORE` (default 0.05) are dropped, and the best 5 are kept.
+   below the reranker's cutoff (0.05) are dropped, and the best 5 are kept.
    - The reranker only reads the start of a long text, so each note is split into pieces of
      about 1,500 characters at sentence boundaries (with the title on each piece and one
      sentence of overlap), and a note gets the score of its best piece. Embeddings in
@@ -99,8 +102,11 @@ flowchart LR
      I been on?"* every trip scores low (each answers only part of the question). A note is
      therefore also kept if it is a **strong match**: above the similarity cutoff *and*
      containing every word of the question.
-   - If reranking fails, for example when the free quota runs out, search logs a warning and
-     returns the hybrid results instead. `RERANK_ENABLED=false` turns it off.
+   - If reranking fails, for example when its 500 free requests a month run out, search
+     tries Pinecone's other free reranker, `pinecone-rerank-v0`, with its own cutoff (0.005).
+     The two tied in the [model comparison](#model-comparison), and each has its own monthly
+     quota. If both fail, search logs a warning and returns the hybrid results.
+     `RERANK_ENABLED=false` turns reranking off.
 4. The matching memories are loaded from Postgres, so answers always use the latest
    version of each note, with real dates.
 5. Gemini writes an answer using only those numbered memories, citing them as `[n]`.
@@ -116,7 +122,75 @@ The evaluations run on a fixed dataset ([`scripts/eval/dataset.ts`](scripts/eval
 (three trips, two fitness notes, Mom's birthday and Dad's medicine) and four long notes
 (1,200 to 7,000 characters: a trip plan, a recipe, a moving checklist and a wedding plan).
 
-### Retrieval
+There are two sets of questions:
+- **Tuning set** (49 questions, [`dataset.ts`](scripts/eval/dataset.ts)): every cutoff,
+  rule and model choice was made by looking at results on these, so their scores are
+  optimistic. The sections after the test set use them.
+- **Held-out test set** (102 questions, [`test-set.ts`](scripts/eval/test-set.ts)): written
+  after every setting was frozen and run once. These are the final numbers.
+
+### Held-out test set (final numbers)
+
+The test set has two groups, reported separately:
+- **Blind (32):** written by someone who didn't build the search and never saw the tuning
+  questions, in their own style: *"act shifting ticket no"*, *"dad bp tablet name"*,
+  *"passport appointment kahan hai"*. 6 turned out to ask the same fact as a tuning
+  question, so they're left out of the headline. That leaves **26 truly unseen questions**.
+- **Informed (70):** written knowing how search works, avoiding both other sets.
+
+**Retrieval** (`npm run eval:test`, [`results-test.md`](scripts/eval/results-test.md)):
+
+| Mode | Hit@1 | Recall@5 | No-answer accuracy | Close-call accuracy |
+|---|---|---|---|---|
+| semantic | 90% | 91% | 34% | 10% |
+| keyword | 81% | 98% | 17% | 0% |
+| hybrid | 93% | 97% | 34% | 10% |
+| **hybrid + rerank** (the app) | **92%** | **92%** | **83%** | **75%** |
+
+**Answers** (`npm run eval:answers:test`, [`answers-test.md`](scripts/eval/answers-test.md)):
+
+| Group | Questions | Right note first | Rejects no-answer questions | Answers fully correct | Faithful |
+|---|---|---|---|---|---|
+| **Blind, unseen (headline)** | 26 | **94%** | **75%** | **92%** | **100%** |
+| Blind, overlapping tuning | 6 | 80% | 100% | 83% | 100% |
+| Informed | 70 | 92% | 85% | 93% | 99% |
+| All | 102 | 92% | 83% | 92% | 99% |
+
+Compared with the tuning set, Hit@1 fell from 97% to 92%, no-answer accuracy from 90% to 83%,
+and fully correct answers from 98% to 92%: lower, as expected for unseen questions, but
+the same picture.
+
+**What the test set showed:**
+- **Reranking's value is in rejecting, not ranking.** Hybrid search ranks the right note first
+  just as often (93% vs 92%), but rejects only 10% of close calls; reranking rejects 75%. The
+  cost is that it sometimes drops a right note: Recall@5 falls from 97% to 92%.
+- **The answer model is a second safety layer.** Search let 5 close calls through, all of
+  them the right topic but missing the detail asked for (a lehenga's price, a PNR, a
+  birthday). The model refused all 5, for example: *"I couldn't find the cost of Meera's
+  reception lehenga in your memories, though they do mention that Rekha Tailors is stitching
+  it [1]."* So every close call got a correct answer.
+- **8 answers failed, all by saying "not found":**
+  - 6 because reranking dropped the right note: two broad questions (*"What recipes have
+    I saved?"*), *"dance teacher"* (the note says "choreographer"), the Hinglish passport
+    question, and two plain questions about the passport office and the mutual fund.
+  - 2 because the model missed a detail in the long Europe note it was given: the budget
+    left and the nights in Lucerne.
+- **The grader made 2 small mistakes:** it marked those 2 "not found" replies as an
+  unsupported claim and a wrong citation, although they make no claim and cite nothing. By
+  hand, faithfulness and citations are 100%; the table shows what was measured.
+- No answer stated a fact the notes don't support.
+
+**Latency**, measured from a laptop in India (Pinecone is in the US):
+
+| Step | p50 | p95 | Max |
+|---|---|---|---|
+| Search (embed the question, both searches, rerank) | 1.7 s | 2.4 s | 2.4 s |
+| Writing the answer (whole answer, not streamed) | 1.2 s | 5.3 s | 17.9 s |
+
+The app streams answers, so the first words usually appear sooner. Gemini's free tier is
+occasionally much slower, which is why answers time out after 30 seconds.
+
+### Retrieval (tuning set)
 
 `npm run eval` asks 49 questions with known answers:
 
@@ -184,7 +258,7 @@ also loses correct memories. Reranking at 0.05 does both.
   in *"blood group"* matching a note about blood pressure) bypassed the similarity cutoff, so
   a keyword-only match must now contain every word of the question.
 
-### Answer quality
+### Answer quality (tuning set)
 
 Retrieval scores don't show whether the written answer is right. `npm run eval:answers` runs
 the full pipeline (search, then the answer model) on the 49 questions plus 3 questions about
@@ -212,6 +286,42 @@ amount, an invented name, a guessed birthday, a citation to the wrong note, a ci
 ([`scripts/eval/grader-check.md`](scripts/eval/grader-check.md)). It wasn't tested on answers
 that are correct but leave something out, and 9 cases is a small check.
 
+### Model comparison
+
+`npm run eval:models` runs the same 49 questions through every embedding model and reranker
+available on the free tiers ([`scripts/eval/models.md`](scripts/eval/models.md)).
+
+**Embedding models**, semantic search alone. Each model scores on its own scale, so each is
+judged at its own best cutoff: the highest one that still keeps every right answer, chosen
+with the answers known.
+
+| Model | Hit@1 | Recall@5 | No-answer at best cutoff | Close-call at best cutoff |
+|---|---|---|---|---|
+| **`gemini-embedding-001`** (used) | 100% | 100% | **30%** | 0% |
+| `llama-text-embed-v2` (Pinecone) | 100% | 100% | 10% | 0% |
+| `multilingual-e5-large` (Pinecone) | 97% | 100% | 20% | 17% |
+
+All three rank the right note first almost every time; these questions are too easy to
+separate them on ranking. Gemini's scores separate answers from non-answers best, and its best
+cutoff (0.569) is close to the 0.55 in use. No embedding model rejects close calls at a
+cutoff that keeps the real answers, which is why reranking is needed whichever model is used.
+
+**Rerankers**, the full pipeline, on the same top 20 candidates:
+
+| Reranker | Cutoff | Hit@1 | No-answer | Close-call |
+|---|---|---|---|---|
+| `bge-reranker-v2-m3` | 0 (none) | 100% | 0% | 0% |
+| **`bge-reranker-v2-m3`** (used) | **0.05** | **97%** | **90%** | **83%** |
+| `pinecone-rerank-v0` | 0 (none) | 100% | 0% | 0% |
+| `pinecone-rerank-v0` | 0.001 | 100% | 80% | 83% |
+| **`pinecone-rerank-v0`** (backup) | **0.005** | **97%** | **90%** | **83%** |
+| `pinecone-rerank-v0` | 0.05 | 74% | 90% | 83% |
+
+At first `pinecone-rerank-v0` looked much worse (74% at 0.05), but it scores on a lower scale.
+At a cutoff suited to it, the two tie exactly, so it became the backup reranker instead of a
+rejected one. With 49 questions, one question is 2 to 3 points, so small differences here
+aren't meaningful.
+
 ### Follow-up questions
 
 `npm run eval:followups` runs 9 two-question conversations, such as *"Where did I try scuba
@@ -231,9 +341,10 @@ mentor) was rewritten to *"What is Priya's phone number?"* and still returned no
 rewriting didn't make search find notes that aren't there. The first answers in these
 conversations were written by hand, so real conversations will be messier.
 
-**Limitations of all the evaluations:** the dataset is small and synthetic, and the cutoffs and
-prompt rules were tuned on the same questions they are scored on, so real-world accuracy will
-be lower. Answers are generated with some randomness, so a rerun can differ by a question or two.
+**Limitations of all the evaluations:** the notes are made up, and every question is about
+the same 29 notes, so the test set measures unseen *questions*, not unseen *notes*. 102
+questions is still small: one question moves a group of 26 by about 4 points. Answers are
+generated with some randomness, so a rerun can differ by a question or two.
 
 ## Demo account, sign-up and rate limits
 
@@ -301,15 +412,24 @@ Found by the evaluations and by asking the demo account questions by hand.
   again?"*, every word except "go" is a stop word, and the internship note mentions the Go
   programming language, so it was kept with a rerank score of 0%. Requiring two or more words
   would fix this but break *"What trips have I been on?"*, which also comes down to one word.
+- **Reranking sometimes drops the right note.** On the test set it did for 6 of 102
+  questions, including a casual Hinglish one (*"passport appointment kahan hai"*) and
+  *"dance teacher"* when the note says "choreographer". The app then says it found nothing.
+- **The answer model can miss a detail in a long note** it was given: on the test set, the
+  budget left and the nights in Lucerne from the long Europe trip note.
 - **Answer wording isn't fully predictable.** Answers are generated with some randomness. In
   testing by hand the model has occasionally left out a note written as a plan, or called a
-  past plan upcoming; the answer evaluation measures how often (none in its latest run). The
-  general-knowledge mode isn't covered by the answer evaluation, and its section can be generic.
+  past plan upcoming; the answer evaluations measure how often (none in their latest runs).
+  The general-knowledge mode isn't covered by the answer evaluation, and its section can be
+  generic.
 - **Long notes are embedded as a whole.** Only the reranker reads them in pieces. Notes up to
   7,000 characters were found for questions about single details (see
   [Evaluation](#evaluation)), but much longer documents would need chunked embeddings too.
-- **Reranking uses Pinecone's free quota.** When it runs out, search quietly falls back to
-  hybrid results, which can return look-alike notes (see the close-call results above).
+- **Reranking uses Pinecone's free quota:** 500 requests a month for each of the two
+  rerankers, shared by every visitor. When both run out, search quietly falls back to hybrid
+  results, which can return look-alike notes (see the close-call results above). The
+  evaluation scripts cache rerank results in `scripts/eval/.cache/` so reruns don't use more.
+  The backup reranker's scores run lower, so notes it reranked show a lower "% relevant".
 - **The model gets today's date with each question**, plus the date each memory was saved,
   so it can tell past from upcoming events. Without them, a June trip plan was described as
   "coming up soon" in October. The demo notes are dated as if written around October 2026,
@@ -487,7 +607,7 @@ extension and click **Send Request**.
 npm test
 ```
 
-107 tests run in a few seconds with [Vitest](https://vitest.dev), with no network access or
+109 tests run in a few seconds with [Vitest](https://vitest.dev), with no network access or
 API keys needed. GitHub Actions runs the type-check and tests on every push and pull request.
 
 - **Unit tests** for the prompt-injection checker, citation parsing, Reciprocal Rank Fusion,
@@ -504,7 +624,8 @@ API keys needed. GitHub Actions runs the type-check and tests on every push and 
 - **Search tests** that run the search pipeline with Pinecone, Gemini and the database mocked.
   They check that reranking reorders and drops candidates, scores a long note by its best
   piece, returns nothing when no note is relevant, keeps strong matches for broad questions,
-  falls back to hybrid results when the reranker fails, and reuses cached question embeddings.
+  switches to the backup reranker (with its own cutoff) when the first fails, falls back to
+  hybrid results when both fail, and reuses cached question embeddings.
   They also check that the follow-up rewrite sends the conversation as escaped data.
 
 ## Project structure
@@ -537,8 +658,11 @@ web/                    # React + Vite frontend
 | `npm run stream-demo -- "<question>"` | Ask a question and print the streamed answer |
 | `npm run eval` | Run the retrieval evaluation and write `scripts/eval/results.md` |
 | `npm run eval:answers` | Run the answer-quality evaluation and write `scripts/eval/answers.md` (about 15 minutes, mostly pauses to respect free-tier limits) |
+| `npm run eval:test` | Run the retrieval evaluation on the held-out test set and write `scripts/eval/results-test.md` |
+| `npm run eval:answers:test` | Run the answer-quality evaluation on the held-out test set and write `scripts/eval/answers-test.md` (about 30 minutes) |
 | `npm run eval:grader` | Check the answer grader on planted mistakes and write `scripts/eval/grader-check.md` |
 | `npm run eval:followups` | Measure follow-up rewriting and write `scripts/eval/followups.md` |
+| `npm run eval:models` | Compare embedding models and rerankers and write `scripts/eval/models.md` |
 | `npm run demo:seed` | Create the demo account and load its sample memories |
 | `npm test` | Run the test suite (`npm run test:watch` re-runs on changes) |
 | `npm run prisma:studio` | Browse the database in a web UI |
@@ -550,7 +674,9 @@ web/                    # React + Vite frontend
 - [x] Prompt-injection protection
 - [x] Hybrid search (keyword + semantic)
 - [x] Retrieval evaluation
-- [x] Reranking with a cross-encoder
+- [x] Reranking with a cross-encoder, with a backup reranker
+- [x] Model comparison (embedding models and rerankers)
+- [x] Held-out test set, with blind-written questions and latency percentiles
 - [x] Splitting long notes into pieces for reranking
 - [x] Answer-quality evaluation (correctness, faithfulness, citation and date accuracy), with a check of the grader itself
 - [x] Follow-up questions (rewritten using the last 3 turns)

@@ -13,8 +13,11 @@
     "stream-demo": "tsx scripts/stream-demo.ts",
     "eval": "tsx scripts/eval/run.ts",
     "eval:answers": "tsx scripts/eval/answers.ts",
+    "eval:test": "tsx scripts/eval/run.ts --test",
+    "eval:answers:test": "tsx scripts/eval/answers.ts --test",
     "eval:grader": "tsx scripts/eval/grader-check.ts",
     "eval:followups": "tsx scripts/eval/followups.ts",
+    "eval:models": "tsx scripts/eval/compare-models.ts",
     "demo:seed": "tsx scripts/seed-demo.ts",
     "test": "vitest run",
     "test:watch": "vitest"
