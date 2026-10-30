@@ -7,6 +7,10 @@ A personal AI assistant that answers questions using **your own notes**. Save me
 relevant memories by meaning and has an LLM write an answer grounded in them, with citations.
 This pattern is called retrieval-augmented generation (RAG).
 
+**Live demo: [memory-assistant-pf1w.onrender.com](https://memory-assistant-pf1w.onrender.com)**,
+then click "Explore sample notes". The free server sleeps when unused, so the first request
+can take about a minute.
+
 The repo contains the API (Hono, TypeScript) and a React frontend in [`web/`](web).
 
 ```http
@@ -368,7 +372,8 @@ needs guardrails:
 
   Requests over a limit get `429` with a `Retry-After` header. Counters are kept in memory,
   which suits a single server instance; several instances would need a shared store such
-  as Redis. Behind a hosting proxy, set `TRUST_PROXY=true` so limits use the visitor's IP.
+  as Redis. Behind a hosting proxy, set `TRUST_PROXY=true` so limits use the visitor's IP,
+  taken from the first entry of `X-Forwarded-For`, where Render puts it.
 
 On Gemini's free tier, Google may use API inputs to improve its products, so a public
 deployment shouldn't be used for sensitive personal notes.
@@ -525,9 +530,11 @@ CI builds the image on every push to check that it still builds.
 
 ## Deployment
 
-Planned for free tiers: the API as a Docker web service on [Render](https://render.com),
-and the frontend as a Render static site. The database (Neon), vectors (Pinecone) and
-models (Gemini) are already hosted services.
+Deployed on free tiers: the API as a Docker web service on [Render](https://render.com) in
+Singapore (next to the Neon database), and the frontend as a Render static site, live at
+[memory-assistant-pf1w.onrender.com](https://memory-assistant-pf1w.onrender.com). The
+database (Neon), vectors (Pinecone) and models (Gemini) are hosted services. The live app
+uses its own Gemini project, so running the evaluations never uses up its quota.
 
 **API (Render web service from the `Dockerfile`).** Set these environment variables in the
 Render dashboard, never in the repository:
@@ -607,7 +614,7 @@ extension and click **Send Request**.
 npm test
 ```
 
-109 tests run in a few seconds with [Vitest](https://vitest.dev), with no network access or
+111 tests run in a few seconds with [Vitest](https://vitest.dev), with no network access or
 API keys needed. GitHub Actions runs the type-check and tests on every push and pull request.
 
 - **Unit tests** for the prompt-injection checker, citation parsing, Reciprocal Rank Fusion,
@@ -684,4 +691,4 @@ web/                    # React + Vite frontend
 - [x] Continuous integration (GitHub Actions: API type-check and tests, frontend build and Docker build on every push and PR)
 - [x] Docker image
 - [x] Web frontend
-- [ ] Deployment
+- [x] Deployment (Render)
