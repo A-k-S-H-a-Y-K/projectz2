@@ -30,6 +30,17 @@ export const searchSchema = z.object({
   query: z.string().min(1).max(1_000),
   // Lets the answer add clearly labelled general knowledge alongside the memories
   includeGeneralKnowledge: z.boolean().default(false),
+  // The last few questions and answers, oldest first, so follow-ups like "who came with me?"
+  // can be understood
+  history: z
+    .array(
+      z.object({
+        question: z.string().min(1).max(1_000),
+        answer: z.string().max(4_000),
+      })
+    )
+    .max(3)
+    .default([]),
 });
 
 // Query-string values always arrive as strings, and a repeated key

@@ -19,6 +19,7 @@ vi.mock('../src/lib/db.js', () => ({
 vi.mock('../src/services/ai.js', () => ({
   searchMemories: vi.fn(),
   generateAnswer: vi.fn(),
+  rewriteFollowUp: vi.fn(),
   streamAnswer: vi.fn(),
   storeMemoryEmbedding: vi.fn().mockResolvedValue(undefined),
   deleteMemoryEmbedding: vi.fn().mockResolvedValue(undefined),
@@ -28,7 +29,12 @@ import app from '../src/app.js';
 import { db } from '../src/lib/db.js';
 import { hashPassword } from '../src/lib/auth.js';
 import { TimeoutError } from '../src/lib/timeout.js';
-import { generateAnswer, searchMemories, streamAnswer } from '../src/services/ai.js';
+import {
+  generateAnswer,
+  rewriteFollowUp,
+  searchMemories,
+  streamAnswer,
+} from '../src/services/ai.js';
 import { authHeader, memory, scoredMemory } from './helpers.js';
 
 const json = (body: unknown) => ({
@@ -301,6 +307,77 @@ describe('POST /ai/search', () => {
     await ask('Tell me about my Goa trip');
 
     expect(generateAnswer).not.toHaveBeenCalled();
+  });
+
+  describe('follow-up questions', () => {
+    const history = [{ question: 'When did I go to Goa?', answer: 'In March [1].' }];
+    const askWith = async (body: unknown) =>
+      app.request('/ai/search', {
+        ...json(body),
+        headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+      });
+
+    beforeEach(() => {
+      vi.mocked(searchMemories).mockResolvedValue([scoredMemory()]);
+      vi.mocked(generateAnswer).mockResolvedValue('You went with college friends [1].');
+    });
+
+    it("doesn't rewrite a question that has no history", async () => {
+      const res = await ask('Who came with me to Goa?');
+
+      expect(rewriteFollowUp).not.toHaveBeenCalled();
+      expect(searchMemories).toHaveBeenCalledWith('Who came with me to Goa?', 1);
+      expect((await res.json()).searchedFor).toBe('Who came with me to Goa?');
+    });
+
+    it('searches and answers the rewritten question', async () => {
+      vi.mocked(rewriteFollowUp).mockResolvedValue('Who came with me on my Goa trip?');
+
+      const res = await askWith({ query: 'Who came with me?', history });
+
+      expect(rewriteFollowUp).toHaveBeenCalledWith('Who came with me?', history);
+      expect(searchMemories).toHaveBeenCalledWith('Who came with me on my Goa trip?', 1);
+      expect(generateAnswer).toHaveBeenCalledWith(
+        'Who came with me on my Goa trip?',
+        expect.anything(),
+        expect.anything()
+      );
+      expect((await res.json()).searchedFor).toBe('Who came with me on my Goa trip?');
+    });
+
+    it('searches the question as asked when the rewrite fails', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      vi.mocked(rewriteFollowUp).mockRejectedValue(new Error('503 UNAVAILABLE'));
+
+      const res = await askWith({ query: 'Who came with me?', history });
+
+      expect(res.status).toBe(200);
+      expect(searchMemories).toHaveBeenCalledWith('Who came with me?', 1);
+      vi.mocked(console.warn).mockRestore();
+    });
+
+    it('rejects more than 3 earlier turns', async () => {
+      const res = await askWith({ query: 'Who came with me?', history: Array(4).fill(history[0]) });
+
+      expect(res.status).toBe(400);
+      expect(searchMemories).not.toHaveBeenCalled();
+    });
+
+    it('streams the searched question before the sources', async () => {
+      vi.mocked(rewriteFollowUp).mockResolvedValue('Who came with me on my Goa trip?');
+      vi.mocked(streamAnswer).mockImplementation(async function* () {
+        yield 'College friends [1].';
+      } as never);
+
+      const res = await app.request('/ai/search/stream', {
+        ...json({ query: 'Who came with me?', history }),
+        headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+      });
+      const body = await res.text();
+
+      expect(body.indexOf('event: query')).toBeLessThan(body.indexOf('event: references'));
+      expect(body).toContain('"searchedFor":"Who came with me on my Goa trip?"');
+    });
   });
 
   describe('when a service fails', () => {

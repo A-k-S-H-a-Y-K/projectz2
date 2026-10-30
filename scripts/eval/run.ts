@@ -2,22 +2,22 @@
 // dataset.ts, and writes the results to scripts/eval/results.md.
 // Run with: npm run eval
 //
-// Uses a separate eval user, so your own memories are never touched. Only embedding calls
-// are made (one per memory, plus one per question for each mode that uses semantic search);
-// no answers are generated.
+// Uses a separate eval user, so your own memories are never touched. Only search calls are
+// made: embeddings (one per memory, plus one per question for each mode that uses semantic
+// search) and one Pinecone rerank request per question in rerank mode. No answers are generated.
 import 'dotenv/config';
 import { writeFile } from 'node:fs/promises';
 import { db } from '../../src/lib/db.js';
-import { searchMemories } from '../../src/services/ai.js';
-import type { SearchMode } from '../../src/types/index.js';
-import { EMBEDDING_PAUSE_MS, replaceMemories, sleep, withRetry } from '../lib/load-memories.js';
+import { minRerankScore, searchMemories } from '../../src/services/ai.js';
+import type { ScoredMemory, SearchMode } from '../../src/types/index.js';
+import { EMBEDDING_PAUSE_MS, loadMemories, sleep, withRetry } from '../lib/load-memories.js';
 import { memories, questions, type EvalQuestion } from './dataset.js';
 
 process.env.LOG_SEARCH = 'false';
 
 const EVAL_EMAIL = 'eval@memory-assistant.local';
 const TOP_K = 5;
-const MODES: SearchMode[] = ['semantic', 'keyword', 'hybrid'];
+const MODES: SearchMode[] = ['semantic', 'keyword', 'hybrid', 'rerank'];
 
 // --- 1. Load the dataset into a fresh eval user ---
 
@@ -28,7 +28,7 @@ const user = await db.user.upsert({
   create: { email: EVAL_EMAIL, name: 'Evaluation', passwordHash: '!' },
 });
 
-const keyById = await replaceMemories(user.id, memories);
+const keyById = await loadMemories(user.id, memories);
 
 // --- 2. Run every question through every mode ---
 
@@ -38,21 +38,87 @@ interface QuestionResult {
   ms: number;
 }
 
-const results = new Map<SearchMode, QuestionResult[]>();
-for (const mode of MODES) {
-  console.log(`Running ${questions.length} questions in ${mode} mode...`);
-  const modeResults: QuestionResult[] = [];
+// `matches` are best first. `strong` matches are kept at any cutoff, as search does.
+interface ScoredQuestion {
+  question: EvalQuestion;
+  matches: { key: string; score: number; strong: boolean }[];
+  ms: number;
+}
+
+// Results as search would return them at a given cutoff
+const atCutoff = (scored: ScoredQuestion[], cutoff: number): QuestionResult[] =>
+  scored.map(({ question, matches, ms }) => ({
+    question,
+    resultKeys: matches
+      .filter((m) => m.score >= cutoff || m.strong)
+      .slice(0, TOP_K)
+      .map((m) => m.key),
+    ms,
+  }));
+
+// Overrides an environment setting while `run` executes
+async function withEnv<T>(name: string, value: string, run: () => Promise<T>): Promise<T> {
+  const previous = process.env[name];
+  process.env[name] = value;
+  try {
+    return await run();
+  } finally {
+    if (previous === undefined) delete process.env[name];
+    else process.env[name] = previous;
+  }
+}
+
+// Runs every question in one mode, keeping each result's score from `scoreOf`
+async function runQuestions(
+  mode: SearchMode,
+  scoreOf: (m: ScoredMemory) => number | null,
+  topK = TOP_K
+): Promise<ScoredQuestion[]> {
+  const scored: ScoredQuestion[] = [];
   for (const question of questions) {
     const start = performance.now();
     const found = await withRetry(
-      () => searchMemories(question.question, user.id, TOP_K, mode),
+      // A reranking failure must stop the run rather than quietly fall back to hybrid results
+      () =>
+        searchMemories(question.question, user.id, {
+          topK,
+          mode,
+          fallbackOnRerankError: false,
+        }),
       question.question
     );
     const ms = performance.now() - start;
-    modeResults.push({ question, resultKeys: found.map((m) => keyById.get(m.id) ?? '?'), ms });
+    scored.push({
+      question,
+      matches: found.map((m) => ({
+        key: keyById.get(m.id) ?? '?',
+        score: scoreOf(m) ?? 0,
+        strong: mode === 'rerank' && m.strongMatch,
+      })),
+      ms,
+    });
     if (mode !== 'keyword') await sleep(EMBEDDING_PAUSE_MS);
   }
-  results.set(mode, modeResults);
+  return scored;
+}
+
+// Rerank mode runs once with no rerank cutoff, returning all 20 scored candidates, so its
+// results at any cutoff can be worked out without using more of the free rerank quota
+const rerankCutoff = minRerankScore();
+const RERANK_CANDIDATES = 20;
+let rerankScored: ScoredQuestion[] = [];
+
+const results = new Map<SearchMode, QuestionResult[]>();
+for (const mode of MODES) {
+  console.log(`Running ${questions.length} questions in ${mode} mode...`);
+  if (mode === 'rerank') {
+    rerankScored = await withEnv('MIN_RERANK_SCORE', '0', () =>
+      runQuestions(mode, (m) => m.rerankScore, RERANK_CANDIDATES)
+    );
+    results.set(mode, atCutoff(rerankScored, rerankCutoff));
+  } else {
+    results.set(mode, atCutoff(await runQuestions(mode, () => 1), 0));
+  }
 }
 
 // --- 3. Relevance cutoff sweep ---
@@ -60,33 +126,13 @@ for (const mode of MODES) {
 // so each candidate cutoff can be scored without searching again.
 
 const CUTOFFS = [0.5, 0.55, 0.6, 0.65, 0.7];
+const RERANK_CUTOFFS = [0.01, 0.05, 0.1, 0.2, 0.3, 0.5];
 const configuredCutoff = process.env.MIN_RELEVANCE_SCORE;
-process.env.MIN_RELEVANCE_SCORE = '0';
 
 console.log('Running the relevance cutoff sweep...');
-const scored: { question: EvalQuestion; matches: { key: string; score: number }[] }[] = [];
-for (const question of questions) {
-  const found = await withRetry(
-    () => searchMemories(question.question, user.id, TOP_K, 'semantic'),
-    question.question
-  );
-  scored.push({
-    question,
-    matches: found.map((m) => ({ key: keyById.get(m.id) ?? '?', score: m.score ?? 0 })),
-  });
-  await sleep(EMBEDDING_PAUSE_MS);
-}
-
-if (configuredCutoff === undefined) delete process.env.MIN_RELEVANCE_SCORE;
-else process.env.MIN_RELEVANCE_SCORE = configuredCutoff;
-
-// Results as they would be at a given cutoff
-const atCutoff = (cutoff: number): QuestionResult[] =>
-  scored.map(({ question, matches }) => ({
-    question,
-    resultKeys: matches.filter((m) => m.score >= cutoff).map((m) => m.key),
-    ms: 0,
-  }));
+const semanticScored = await withEnv('MIN_RELEVANCE_SCORE', '0', () =>
+  runQuestions('semantic', (m) => m.score)
+);
 
 // --- 4. Score the results ---
 
@@ -122,16 +168,19 @@ function score(modeResults: QuestionResult[]) {
   };
 }
 
-const answerableKinds = ['paraphrase', 'exact', 'multi'] as const;
+const answerableKinds = ['paraphrase', 'exact', 'multi', 'long-detail'] as const;
+const unanswerableKinds = ['unanswerable', 'close-call'] as const;
 const countOf = (kind: EvalQuestion['kind']) => questions.filter((q) => q.kind === kind).length;
 
 const lines: string[] = [
   '# Retrieval evaluation',
   '',
   `Run on ${new Date().toISOString().slice(0, 10)} with ${memories.length} memories and ` +
-    `${questions.length} questions (${answerableKinds.map((k) => `${countOf(k)} ${k}`).join(', ')}, ` +
-    `${countOf('unanswerable')} unanswerable), top ${TOP_K} results, relevance cutoff ` +
-    `${configuredCutoff ?? '0.55 (default)'}. Generated by \`npm run eval\`.`,
+    `${questions.length} questions (` +
+    [...answerableKinds, ...unanswerableKinds].map((k) => `${countOf(k)} ${k}`).join(', ') +
+    `), top ${TOP_K} results, relevance cutoff ` +
+    `${configuredCutoff ?? '0.55 (default)'}, rerank cutoff ${rerankCutoff} ` +
+    `(rerank mode reranks the top 20 hybrid candidates). Generated by \`npm run eval\`.`,
   '',
   '| Mode | Hit@1 | Hit@3 | MRR | Recall@5 | No-answer accuracy | Avg search time |',
   '|---|---|---|---|---|---|---|',
@@ -144,7 +193,12 @@ for (const mode of MODES) {
   );
 }
 
-lines.push('', '**Hit@1 by question type**', '', `| Mode | ${answerableKinds.join(' | ')} |`, '|---|---|---|---|');
+const tableHeader = (columns: readonly string[]) => [
+  `| Mode | ${columns.join(' | ')} |`,
+  `|---|${columns.map(() => '---|').join('')}`,
+];
+
+lines.push('', '**Hit@1 by question type**', '', ...tableHeader(answerableKinds));
 for (const mode of MODES) {
   const byKind = answerableKinds.map((kind) => {
     const ranks = results.get(mode)!.filter((r) => r.question.kind === kind).map(firstHitRank);
@@ -153,21 +207,38 @@ for (const mode of MODES) {
   lines.push(`| ${mode} | ${byKind.join(' | ')} |`);
 }
 
-lines.push(
-  '',
-  '**Relevance cutoff sweep** (semantic search; notes sent = average memories passed to the model per question)',
-  '',
-  '| Cutoff | Hit@1 | Recall@5 | No-answer accuracy | Notes sent |',
-  '|---|---|---|---|---|'
-);
-for (const cutoff of CUTOFFS) {
-  const cutoffResults = atCutoff(cutoff);
-  const s = score(cutoffResults);
-  const notesSent = average(cutoffResults.map((r) => r.resultKeys.length));
-  lines.push(
-    `| ${cutoff.toFixed(2)} | ${percent(s.hit1)} | ${percent(s.recall)} | ${percent(s.noAnswer)} | ${notesSent.toFixed(1)} |`
-  );
+lines.push('', '**No-answer accuracy by question type**', '', ...tableHeader(unanswerableKinds));
+for (const mode of MODES) {
+  const byKind = unanswerableKinds.map((kind) => {
+    const kindResults = results.get(mode)!.filter((r) => r.question.kind === kind);
+    return percent(average(kindResults.map((r) => (r.resultKeys.length === 0 ? 1 : 0))));
+  });
+  lines.push(`| ${mode} | ${byKind.join(' | ')} |`);
 }
+
+function sweepTable(title: string, scored: ScoredQuestion[], cutoffs: number[]) {
+  lines.push(
+    '',
+    `**${title}** (notes sent = average memories passed to the model per question)`,
+    '',
+    '| Cutoff | Hit@1 | Recall@5 | No-answer accuracy | Close-call accuracy | Notes sent |',
+    '|---|---|---|---|---|---|'
+  );
+  for (const cutoff of cutoffs) {
+    const cutoffResults = atCutoff(scored, cutoff);
+    const s = score(cutoffResults);
+    const closeCalls = cutoffResults.filter((r) => r.question.kind === 'close-call');
+    const closeCallAccuracy = average(closeCalls.map((r) => (r.resultKeys.length === 0 ? 1 : 0)));
+    const notesSent = average(cutoffResults.map((r) => r.resultKeys.length));
+    lines.push(
+      `| ${cutoff.toFixed(2)} | ${percent(s.hit1)} | ${percent(s.recall)} | ${percent(s.noAnswer)} | ` +
+        `${percent(closeCallAccuracy)} | ${notesSent.toFixed(1)} |`
+    );
+  }
+}
+
+sweepTable('Relevance cutoff sweep, semantic search', semanticScored, CUTOFFS);
+sweepTable('Rerank cutoff sweep, rerank mode', rerankScored, RERANK_CUTOFFS);
 
 lines.push('', '**Misses** (wrong first result, or results returned for an unanswerable question)', '');
 for (const mode of MODES) {

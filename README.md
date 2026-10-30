@@ -27,6 +27,11 @@ POST /ai/search
 - **Hybrid search**: semantic search (Pinecone) and keyword search (Postgres full-text) run in
   parallel and are merged with Reciprocal Rank Fusion, so questions match by meaning *and*
   exact names or rare words still match
+- **Reranking**: a cross-encoder reranker re-scores the top 20 candidates by reading the
+  question and each note together, so a note about Dad's medicine is no longer returned for
+  *"What medicine does my mother take?"*. Measured on close-call questions: 0% → 83%
+- **Measured, not guessed**: a retrieval evaluation (49 questions) and an answer-quality
+  evaluation (52 questions, graded by an LLM whose own accuracy is checked on planted mistakes)
 - **Grounded answers with citations**: the answer cites its sources as `[1]`, `[2]`, and each
   returned memory says whether it was cited and how similar it is to the question. Answers are
   written in a friendly tone, but may only use facts from the memories.
@@ -35,7 +40,10 @@ POST /ai/search
   presented as something the user saved, and never guesses personal facts. The frontend shows it
   in its own box labelled "not from your notes".
 - **Relevance filtering**: weak matches are dropped, and when nothing relevant is found the
-  LLM isn't called at all
+  LLM isn't called at all. Both cutoffs were chosen by measurement, not guesswork
+- **Follow-up questions**: *"Who did I go with?"* after a question about Goa is rewritten to
+  *"Who did I go with on my Goa trip?"* before searching. Measured: the right note came first
+  for 6 of 9 follow-ups as asked, 9 of 9 after rewriting
 - **Streaming answers** over Server-Sent Events, with sources sent before the answer starts
 - **Prompt-injection protection**: memory text is treated as data, never instructions,
   and memories that look like injection attempts are withheld from the model
@@ -53,7 +61,7 @@ flowchart LR
     Client -->|REST + JWT| API[Hono API]
     API -->|users, memories,<br/>keyword search| PG[(Neon Postgres<br/>via Prisma)]
     API -->|embed text| GE[Gemini<br/>gemini-embedding-001]
-    API -->|store / query vectors| PC[(Pinecone)]
+    API -->|store / query vectors,<br/>rerank| PC[(Pinecone)]
     API -->|write answer| GC[Gemini<br/>Flash-Lite]
 ```
 
@@ -61,6 +69,12 @@ flowchart LR
 (a 1024-number vector) and stored in Pinecone with the owner's user ID.
 
 **Asking a question:**
+0. **Follow-ups:** a question can come with the last 3 questions and answers. If it does,
+   Gemini first rewrites it so it can be understood on its own (*"What did I eat there?"*
+   becomes *"What did I eat on my Goa trip?"*), and the rest of the steps use the rewritten
+   question. A question already understandable on its own is left unchanged, and without
+   history there's no extra call. The earlier conversation is wrapped in tags and escaped
+   like memories, and if the rewrite fails, the question is searched as asked.
 1. Two searches run in parallel, both limited to the current user:
    - **Semantic:** the question is embedded with Gemini and Pinecone returns the closest
      memory vectors. Matches below a similarity cutoff (`MIN_RELEVANCE_SCORE`, default 0.55)
@@ -71,61 +85,155 @@ flowchart LR
 2. The two ranked lists are merged with
    [Reciprocal Rank Fusion](https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf):
    memories ranked highly by either search rise to the top, and those found by both get a boost.
-3. The matching memories are loaded from Postgres, so answers always use the latest
+3. **Reranking:** the top 20 candidates go to Pinecone's hosted reranker
+   (`bge-reranker-v2-m3`, a cross-encoder). An embedding sums up a note once, before any
+   question is asked; the reranker reads the question and the note *together*, so it can tell
+   that a note about Dad's medicine doesn't answer a question about Mom's. Candidates scoring
+   below `MIN_RERANK_SCORE` (default 0.05) are dropped, and the best 5 are kept.
+   - The reranker only reads the start of a long text, so each note is split into pieces of
+     about 1,500 characters at sentence boundaries (with the title on each piece and one
+     sentence of overlap), and a note gets the score of its best piece. Embeddings in
+     Pinecone are still one per note: the evaluation showed whole-note embeddings find long
+     notes fine, it was only the reranker that missed details near their end.
+   - The reranker scores each note on its own, so for broad questions like *"What trips have
+     I been on?"* every trip scores low (each answers only part of the question). A note is
+     therefore also kept if it is a **strong match**: above the similarity cutoff *and*
+     containing every word of the question.
+   - If reranking fails, for example when the free quota runs out, search logs a warning and
+     returns the hybrid results instead. `RERANK_ENABLED=false` turns it off.
+4. The matching memories are loaded from Postgres, so answers always use the latest
    version of each note, with real dates.
-4. Gemini writes an answer using only those numbered memories, citing them as `[n]`.
+5. Gemini writes an answer using only those numbered memories, citing them as `[n]`.
 
-Each returned memory includes `matchedBy` (`semantic`, `keyword` or both) and `score`
-(its semantic similarity, or `null` if only keyword search found it).
+Each returned memory includes `matchedBy` (`semantic`, `keyword` or both), `score` (its
+semantic similarity, or `null` if only keyword search found it) and `rerankScore` (the
+reranker's relevance score, or `null` if reranking was off or failed).
 
 ## Evaluation
 
-`npm run eval` measures retrieval on a fixed dataset ([`scripts/eval/dataset.ts`](scripts/eval/dataset.ts)):
-25 made-up memories, including deliberate look-alikes (two trips, two fitness notes, two family
-health notes), and 24 questions with known answers. These are 12 reworded questions, 6 exact
-names or codes, 2 that need two memories, and 4 that no memory answers. Each question runs
-through semantic-only, keyword-only and hybrid search. It uses a separate user and only
-embedding calls, so it fits the free tiers.
+The evaluations run on a fixed dataset ([`scripts/eval/dataset.ts`](scripts/eval/dataset.ts)):
+29 made-up memories, each with a realistic saved date. They include deliberate look-alikes
+(three trips, two fitness notes, Mom's birthday and Dad's medicine) and four long notes
+(1,200 to 7,000 characters: a trip plan, a recipe, a moving checklist and a wedding plan).
 
-| Mode | Hit@1 | Hit@3 | MRR | Recall@5 | No-answer accuracy | Avg search time |
-|---|---|---|---|---|---|---|
-| semantic | 100% | 100% | 1.00 | 100% | 100% | 1118 ms |
-| keyword | 80% | 90% | 0.85 | 90% | 50% | 322 ms |
-| hybrid | 100% | 100% | 1.00 | 100% | 100% | 1125 ms |
+### Retrieval
 
-*Hit@k: the right memory is in the top k results. MRR: mean of 1 / rank of the first right
-memory. No-answer accuracy: unanswerable questions that correctly return nothing.*
-Full output, including every miss: [`scripts/eval/results.md`](scripts/eval/results.md).
+`npm run eval` asks 49 questions with known answers:
 
-**Choosing the relevance cutoff.** The evaluation also scores semantic search at several
-similarity cutoffs, from a single extra pass that records every match's score:
+| Type | Count | Example |
+|---|---|---|
+| paraphrase | 12 | *"Who is guiding me at my internship?"* (the note says "mentor") |
+| exact | 6 | *"OD4312987766"* |
+| multi | 2 | *"What trips have I been on?"* (three notes) |
+| long-detail | 19 | *"What can I use instead of eggs in the cake?"* (one line in a long recipe) |
+| unanswerable | 4 | *"What is my blood group?"* |
+| close-call | 6 | *"What medicine does my mother take?"* (only Dad's medicine is saved) |
 
-| Cutoff | Hit@1 | Recall@5 | No-answer accuracy | Memories sent to the model |
-|---|---|---|---|---|
-| 0.50 | 100% | 100% | 0% | 3.8 |
-| **0.55** | **100%** | **100%** | **100%** | **1.8** |
-| 0.60 | 95% | 90% | 100% | 0.8 |
-| 0.65 | 55% | 55% | 100% | 0.5 |
-| 0.70 | 20% | 20% | 100% | 0.2 |
+Each question runs through four modes, using a separate user. The run uses only embedding
+calls plus one rerank request per question, so it fits the free tiers.
 
-0.55, the default, is the only cutoff that keeps every right memory while returning nothing
-for unanswerable questions. The safe range is narrow, so it should be re-checked with
-`npm run eval` after changing the embedding model or with very different notes.
+| Mode | Hit@1 | Recall@5 | No-answer accuracy | Close-call accuracy | Long-detail Hit@1 |
+|---|---|---|---|---|---|
+| semantic | 100% | 100% | 30% | 0% | 100% |
+| keyword | 82% | 95% | 0% | 0% | 95% |
+| hybrid | 100% | 100% | 30% | 0% | 100% |
+| **hybrid + rerank** (default) | **97%** | **97%** | **90%** | **83%** | **100%** |
 
-**What the evaluation found:**
-- The first run showed hybrid search at **50% no-answer accuracy**. Keyword matches on a
-  single shared word ("blood" in *"What is my blood group?"* matching a note about blood
-  pressure) were bypassing the semantic relevance cutoff. Hybrid search now keeps a
-  keyword-only match only if it contains every word of the question, and the re-run shows
-  100% with no loss in retrieval.
-- Keyword search alone misses reworded questions (*"What fitness goals do I have?"*), which
-  is what semantic search is for.
-- An earlier guess that raising the cutoff to 0.60 would cut noise was wrong: the sweep shows
-  it starts dropping correct memories.
-- **Limitations:** the dataset is small and synthetic. Semantic search alone already scores
-  100% on it, so this dataset doesn't show hybrid search improving retrieval; it only shows
-  that hybrid search doesn't make it worse. Testing that would need a larger, harder set of
-  real notes.
+*Hit@1: the right memory comes first. Recall@5: share of right memories in the top 5.
+No-answer accuracy: unanswerable and close-call questions that correctly return nothing.
+Close-call accuracy: the close-call questions alone.*
+Full output, including every miss and search times: [`scripts/eval/results.md`](scripts/eval/results.md).
+The search times there aren't a fair comparison: the first mode embeds each question and the
+later modes reuse the cached embedding. Measured on its own, reranking adds about 1 second to
+a hybrid search.
+
+**Choosing the cutoffs.** Each sweep comes from a single pass that records every candidate's
+score, so it costs no extra API calls.
+
+| Similarity cutoff (no reranking) | Hit@1 | No-answer | Close-call |
+|---|---|---|---|
+| 0.50 | 100% | 0% | 0% |
+| 0.55 | 100% | 30% | 0% |
+| 0.60 | 87% | 80% | 67% |
+| 0.70 | 21% | 100% | 100% |
+
+| Rerank cutoff | Hit@1 | No-answer | Close-call |
+|---|---|---|---|
+| 0.01 | 97% | 70% | 67% |
+| **0.05** (default) | **97%** | **90%** | **83%** |
+| 0.10 | 90% | 90% | 83% |
+| 0.30 | 79% | 90% | 83% |
+
+No similarity cutoff separates close calls from real answers: every setting that rejects them
+also loses correct memories. Reranking at 0.05 does both.
+
+**What the retrieval evaluation found:**
+- **Close calls needed reranking.** Embeddings place *"What medicine does my mother take?"*
+  close to a note about Dad's medicine, because both are about family and medicine. Every
+  close call returned a wrong note until reranking was added.
+- **Reranking alone broke broad questions.** At first the reranker returned nothing for
+  *"What trips have I been on?"* and *"What fitness goals do I have?"*, because each note
+  answers only part of them. Keeping strong matches (similar in meaning *and* containing
+  every question word) fixed the trips question without letting any close call back in.
+- **Long notes needed chunking for the reranker, not for search.** Embedding whole notes
+  still found the right note first for every long-detail question, even in the 7,000-character
+  wedding plan. But the reranker only reads the start of a text, so it dropped details near
+  the end (the choreographer, the train back). Reranking 1,500-character pieces raised
+  long-detail Hit@1 with reranking from 89% to 100%.
+- **Hybrid search once hurt no-answer accuracy.** Keyword matches on one shared word ("blood"
+  in *"blood group"* matching a note about blood pressure) bypassed the similarity cutoff, so
+  a keyword-only match must now contain every word of the question.
+
+### Answer quality
+
+Retrieval scores don't show whether the written answer is right. `npm run eval:answers` runs
+the full pipeline (search, then the answer model) on the 49 questions plus 3 questions about
+dates, then a grader model checks each answer against the notes it was given:
+
+| Check | Meaning | Result |
+|---|---|---|
+| Correct | Answerable questions answered; the rest say the notes don't have it | 98% (51 of 52) |
+| Faithful | No claim the notes don't support | 100% |
+| Citations | Every `[n]` supports its sentence, and no `[n]` points to a missing note | 100% |
+| Dates | Nothing past called upcoming, or the reverse | 100% |
+
+The one failure is *"What fitness goals do I have?"*, a retrieval miss (see below). Every
+answer is written to [`scripts/eval/answers.md`](scripts/eval/answers.md) so the verdicts can
+be checked by hand; a hand check agreed with all of them. Two worth noting: for *"When is Divya's
+wedding?"* search sent the wedding plan (a different wedding), and the model correctly said
+the notes don't have it; for *"What trips have I been on?"* it listed both past trips and said
+the June Europe trip was planned but the notes don't say whether it happened.
+
+**Checking the grader.** The grader is an LLM too, so a 100% score only means something if it
+can catch mistakes. `npm run eval:grader` gives it 6 answers with planted mistakes (a wrong
+amount, an invented name, a guessed birthday, a citation to the wrong note, a citation on a
+"not in your notes" sentence, a past trip called upcoming) and 3 correct answers. It
+**caught all 6 with no false alarms**
+([`scripts/eval/grader-check.md`](scripts/eval/grader-check.md)). It wasn't tested on answers
+that are correct but leave something out, and 9 cases is a small check.
+
+### Follow-up questions
+
+`npm run eval:followups` runs 9 two-question conversations, such as *"Where did I try scuba
+diving?"* followed by *"Who did I go with?"*, and searches each follow-up both as asked and
+after rewriting it ([`scripts/eval/followups.md`](scripts/eval/followups.md)):
+
+| Follow-up searched | Right note first |
+|---|---|
+| As asked | 6 of 9 |
+| After rewriting | **9 of 9** |
+
+The 3 fixed by rewriting had nothing to search on by themselves (*"Who did I go with?"*
+returned the internship and gym notes; *"How long do I take it for?"* returned nothing). The
+other 4 follow-ups contained a telling word, such as "refilled" or "collecting". A change of
+topic was left unchanged, and *"What is her phone number?"* (after a question about the
+mentor) was rewritten to *"What is Priya's phone number?"* and still returned nothing, so
+rewriting didn't make search find notes that aren't there. The first answers in these
+conversations were written by hand, so real conversations will be messier.
+
+**Limitations of all the evaluations:** the dataset is small and synthetic, and the cutoffs and
+prompt rules were tuned on the same questions they are scored on, so real-world accuracy will
+be lower. Answers are generated with some randomness, so a rerun can differ by a question or two.
 
 ## Demo account, sign-up and rate limits
 
@@ -133,8 +241,9 @@ Every user shares the server's Gemini key and its small free quota, so a public 
 needs guardrails:
 
 - **Demo account.** `POST /auth/demo` logs a visitor into a shared account without a
-  password. `npm run demo:seed` fills it with the 25 sample memories from the evaluation
-  dataset, plus one long trip-planning note full of dates, prices and booking codes. The demo is **read-only**: visitors can browse and ask questions, but can't add,
+  password. `npm run demo:seed` fills it with the 29 sample memories from the evaluation
+  dataset, including long notes full of dates, prices and booking codes. The demo is
+  **read-only**: visitors can browse and ask questions, but can't add,
   edit or delete memories, so nobody can fill it with junk or plant prompt injections.
 - **Sign-up modes.** `SIGNUP_MODE` is `open`, `invite` (requires `INVITE_CODE`) or `closed`.
   It defaults to `closed` in production. `GET /auth/config` tells a client which options to show.
@@ -177,18 +286,30 @@ independent layers.
 
 ## Known limitations
 
-Found by asking the demo account questions by hand. The retrieval evaluation measures search,
-not the wording of generated answers, so these aren't caught automatically yet.
+Found by the evaluations and by asking the demo account questions by hand.
 
-- **Each question stands alone.** There's no conversation history, so follow-ups like
-  *"Did she come with me on that trip?"* can't tell who "she" is or which trip.
-- **Answer wording isn't fully predictable.** The model sometimes puts a citation on a
-  "this isn't in your notes" sentence, may leave out a note written as a plan when asked what
-  has already happened, and its general-knowledge section can be generic. In every test it
-  only stated facts that are in the memories.
-- **Long notes are embedded as a whole.** A 1,500-character note full of details was still
-  found for questions about single details (about 64% similarity), but much longer notes may
-  need splitting into chunks.
+- **Conversations are short and not saved.** Follow-ups use the last 3 questions and answers,
+  kept in the browser, so the conversation is gone after a page reload. A follow-up costs one
+  extra Gemini call.
+- **Questions with no shared words can be missed.** *"What fitness goals do I have?"* returns
+  nothing: the reranker scores each fitness note low on its own, and neither note contains
+  the word "goal", so the strong-match rule doesn't keep them.
+- **A strong match can let a look-alike through.** *"When is Divya's wedding?"* returns the
+  user's own wedding plan, because it is similar and contains every word of the question. The
+  model then correctly says the notes don't have it, so the answer is right, but the note is
+  still sent to the model. It can also happen by accident: in *"Then who did I go with
+  again?"*, every word except "go" is a stop word, and the internship note mentions the Go
+  programming language, so it was kept with a rerank score of 0%. Requiring two or more words
+  would fix this but break *"What trips have I been on?"*, which also comes down to one word.
+- **Answer wording isn't fully predictable.** Answers are generated with some randomness. In
+  testing by hand the model has occasionally left out a note written as a plan, or called a
+  past plan upcoming; the answer evaluation measures how often (none in its latest run). The
+  general-knowledge mode isn't covered by the answer evaluation, and its section can be generic.
+- **Long notes are embedded as a whole.** Only the reranker reads them in pieces. Notes up to
+  7,000 characters were found for questions about single details (see
+  [Evaluation](#evaluation)), but much longer documents would need chunked embeddings too.
+- **Reranking uses Pinecone's free quota.** When it runs out, search quietly falls back to
+  hybrid results, which can return look-alike notes (see the close-call results above).
 - **The model gets today's date with each question**, plus the date each memory was saved,
   so it can tell past from upcoming events. Without them, a June trip plan was described as
   "coming up soon" in October. The demo notes are dated as if written around October 2026,
@@ -310,6 +431,9 @@ Render dashboard, never in the repository:
   if `CORS_ORIGIN` isn't set in production, or if `JWT_SECRET` is shorter than 32 characters
   in production.
 - Request bodies over 100 KB are rejected with `413` before they're read.
+- Gemini's free tier sometimes answers `503` ("model overloaded") for a moment, so a Gemini
+  call that fails that way is tried once more after 1.5 seconds. Other errors, such as a
+  used-up quota, aren't retried. A streamed answer is only retried before any text is sent.
 - Render's free plan stops the API after 15 idle minutes and takes about a minute to start
   again. The frontend shows a "waking up the server" message when a request takes more than
   a few seconds, instead of looking frozen.
@@ -332,15 +456,19 @@ using the token returned by sign-up or login.
 | `GET` | `/memories/:id` | Get one memory |
 | `PUT` | `/memories/:id` | Update a memory |
 | `DELETE` | `/memories/:id` | Delete a memory |
-| `POST` | `/ai/search` | Ask a question (`query`, optional `includeGeneralKnowledge`) → `answer` + `references` |
+| `POST` | `/ai/search` | Ask a question (`query`, optional `includeGeneralKnowledge` and `history`) → `answer`, `references` and `searchedFor` |
 | `POST` | `/ai/search/stream` | Same, streamed as Server-Sent Events (see below) |
 
 ### Streaming
+
+`history` is up to 3 earlier turns, oldest first: `[{ "question": "...", "answer": "..." }]`.
+`searchedFor` is the question actually searched for, after any follow-up rewrite.
 
 `/ai/search/stream` takes the same body as `/ai/search` and sends these events:
 
 | Event | Data |
 |---|---|
+| `query` | `{ "searchedFor": "..." }`, the question searched for |
 | `references` | The matching memories, sent before the answer starts |
 | `token` | `{ "text": "..." }`, one piece of the answer |
 | `done` | `{ "cited": [1] }`, the citation numbers used in the answer |
@@ -359,19 +487,25 @@ extension and click **Send Request**.
 npm test
 ```
 
-75 tests run in a few seconds with [Vitest](https://vitest.dev), with no network access or
+107 tests run in a few seconds with [Vitest](https://vitest.dev), with no network access or
 API keys needed. GitHub Actions runs the type-check and tests on every push and pull request.
 
 - **Unit tests** for the prompt-injection checker, citation parsing, Reciprocal Rank Fusion,
-  rate limiting, startup settings checks, token lifetimes, password hashing and request
+  rerank selection, splitting notes into pieces, retrying a busy model, rate limiting, startup settings checks, token lifetimes, password hashing and request
   validation, including regression tests for earlier bugs (`JWT_EXPIRES_IN=7d` once meant
   7 seconds; `?page=2` was rejected).
 - **Route tests** that send real HTTP requests to the app with the database and AI services
   mocked. They check sign-up modes, that the demo account is read-only, that requests
   without a valid token get 401, that users can only reach their own memories, that the
   model isn't called when nothing relevant is found, that suspicious memories are never sent
-  to the model, that oversized request bodies get 413, and that 500 responses don't leak
+  to the model, that follow-ups are rewritten before searching (and searched as asked if the
+  rewrite fails), that oversized request bodies get 413, and that 500 responses don't leak
   internal error details.
+- **Search tests** that run the search pipeline with Pinecone, Gemini and the database mocked.
+  They check that reranking reorders and drops candidates, scores a long note by its best
+  piece, returns nothing when no note is relevant, keeps strong matches for broad questions,
+  falls back to hybrid results when the reranker fails, and reuses cached question embeddings.
+  They also check that the follow-up rewrite sends the conversation as escaped data.
 
 ## Project structure
 
@@ -380,9 +514,10 @@ src/
 ├── index.ts            # Starts the server
 ├── app.ts              # App setup, middleware, routes
 ├── routes/             # auth, memories, ai
-├── services/ai.ts      # Embeddings, vector search, answer generation
+├── services/ai.ts      # Embeddings, hybrid search, reranking, answer generation
 ├── middleware/auth.ts  # JWT verification
-├── lib/                # Prisma client, auth, citations, rank fusion, prompt-injection helpers
+├── lib/                # Prisma client, auth, citations, rank fusion, reranking, chunking,
+│                       # prompt-injection and settings-check helpers
 ├── validations/        # Zod request schemas
 └── types/
 prisma/                 # Schema and migrations
@@ -401,6 +536,9 @@ web/                    # React + Vite frontend
 | `npm run pinecone:setup` | Create the Pinecone index |
 | `npm run stream-demo -- "<question>"` | Ask a question and print the streamed answer |
 | `npm run eval` | Run the retrieval evaluation and write `scripts/eval/results.md` |
+| `npm run eval:answers` | Run the answer-quality evaluation and write `scripts/eval/answers.md` (about 15 minutes, mostly pauses to respect free-tier limits) |
+| `npm run eval:grader` | Check the answer grader on planted mistakes and write `scripts/eval/grader-check.md` |
+| `npm run eval:followups` | Measure follow-up rewriting and write `scripts/eval/followups.md` |
 | `npm run demo:seed` | Create the demo account and load its sample memories |
 | `npm test` | Run the test suite (`npm run test:watch` re-runs on changes) |
 | `npm run prisma:studio` | Browse the database in a web UI |
@@ -412,9 +550,10 @@ web/                    # React + Vite frontend
 - [x] Prompt-injection protection
 - [x] Hybrid search (keyword + semantic)
 - [x] Retrieval evaluation
-- [ ] Answer-quality evaluation (faithfulness and citation accuracy of generated answers)
-- [ ] Follow-up questions (conversation history)
-- [ ] Splitting long notes into chunks
+- [x] Reranking with a cross-encoder
+- [x] Splitting long notes into pieces for reranking
+- [x] Answer-quality evaluation (correctness, faithfulness, citation and date accuracy), with a check of the grader itself
+- [x] Follow-up questions (rewritten using the last 3 turns)
 - [x] Automated tests
 - [x] Continuous integration (GitHub Actions: API type-check and tests, frontend build and Docker build on every push and PR)
 - [x] Docker image

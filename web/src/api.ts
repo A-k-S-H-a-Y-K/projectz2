@@ -23,10 +23,18 @@ export interface Memory {
 
 export interface Reference extends Memory {
   score: number | null;
+  // The reranker's relevance score, or null when reranking is off or failed
+  rerankScore: number | null;
   matchedBy: ('semantic' | 'keyword')[];
   suspicious: boolean;
   citation: number | null;
   cited: boolean;
+}
+
+// An earlier question and its answer, sent so follow-ups like "who came with me?" make sense
+export interface Turn {
+  question: string;
+  answer: string;
 }
 
 export interface Session {
@@ -147,12 +155,14 @@ export const createMemory = (memory: { title?: string; content: string; tags: st
 
 export const deleteMemory = (id: number) => send(`/memories/${id}`, { method: 'DELETE' });
 
-// Asks a question through the streaming endpoint. Sources arrive first, then the answer
-// in pieces, then the citation numbers the answer used.
+// Asks a question through the streaming endpoint. The question actually searched for arrives
+// first (a follow-up is rewritten to stand on its own), then the sources, then the answer in
+// pieces, then the citation numbers the answer used.
 export async function askStream(
   query: string,
-  includeGeneralKnowledge: boolean,
+  options: { includeGeneralKnowledge: boolean; history: Turn[] },
   handlers: {
+    onQuery: (searchedFor: string) => void;
     onReferences: (references: Reference[]) => void;
     onToken: (text: string) => void;
     onDone: (cited: number[]) => void;
@@ -161,7 +171,7 @@ export async function askStream(
 ) {
   const res = await send('/ai/search/stream', {
     method: 'POST',
-    body: JSON.stringify({ query, includeGeneralKnowledge }),
+    body: JSON.stringify({ query, ...options }),
     signal,
   });
   const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();
@@ -175,7 +185,8 @@ export async function askStream(
     if (!event || !data) return;
 
     const payload = JSON.parse(data);
-    if (event === 'references') handlers.onReferences(payload);
+    if (event === 'query') handlers.onQuery(payload.searchedFor);
+    else if (event === 'references') handlers.onReferences(payload);
     else if (event === 'token') handlers.onToken(payload.text);
     else if (event === 'done') {
       finished = true;

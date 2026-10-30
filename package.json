@@ -12,6 +12,9 @@
     "pinecone:setup": "tsx scripts/setup-pinecone.ts",
     "stream-demo": "tsx scripts/stream-demo.ts",
     "eval": "tsx scripts/eval/run.ts",
+    "eval:answers": "tsx scripts/eval/answers.ts",
+    "eval:grader": "tsx scripts/eval/grader-check.ts",
+    "eval:followups": "tsx scripts/eval/followups.ts",
     "demo:seed": "tsx scripts/seed-demo.ts",
     "test": "vitest run",
     "test:watch": "vitest"

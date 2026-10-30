@@ -4,6 +4,9 @@ import type { Reference, ScoredMemory } from '../types/index.js';
 // separate from what the memories say
 export const GENERAL_KNOWLEDGE_MARKER = 'General knowledge:';
 
+// The reply when no memory is relevant and general knowledge is off; the model isn't called
+export const NO_MATCH_ANSWER = "I couldn't find any relevant memories to answer your question.";
+
 // Splits an answer into the part based on memories and the optional general-knowledge part
 export function splitAnswer(answer: string): { notes: string; general: string | null } {
   const match = /(^|\n)[*#\s]*General knowledge:[*\s]*/i.exec(answer);
