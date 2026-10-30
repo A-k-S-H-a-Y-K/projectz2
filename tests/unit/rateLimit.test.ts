@@ -45,10 +45,12 @@ describe('clientIp', () => {
     delete process.env.TRUST_PROXY;
   });
 
-  it("uses the first X-Forwarded-For entry behind a proxy, where Render puts the client's address", async () => {
+  it('uses the entry the proxy added, ignoring ones the client could have made up', async () => {
     process.env.TRUST_PROXY = 'true';
 
-    expect(await ipFor({ 'X-Forwarded-For': '203.0.113.7, 10.0.0.1, 10.0.0.2' })).toBe('203.0.113.7');
+    // A visitor sends a made-up address; the proxy appends the real one
+    expect(await ipFor({ 'X-Forwarded-For': '198.51.100.23, 203.0.113.7' })).toBe('203.0.113.7');
+    expect(await ipFor({ 'X-Forwarded-For': '203.0.113.7' })).toBe('203.0.113.7');
   });
 
   it('ignores X-Forwarded-For unless the proxy is trusted', async () => {

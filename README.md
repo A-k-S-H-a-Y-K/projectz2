@@ -372,8 +372,9 @@ needs guardrails:
 
   Requests over a limit get `429` with a `Retry-After` header. Counters are kept in memory,
   which suits a single server instance; several instances would need a shared store such
-  as Redis. Behind a hosting proxy, set `TRUST_PROXY=true` so limits use the visitor's IP,
-  taken from the first entry of `X-Forwarded-For`, where Render puts it.
+  as Redis. Behind a hosting proxy, set `TRUST_PROXY=true` so limits use the visitor's IP:
+  the last entry of `X-Forwarded-For`, which the proxy adds itself. Earlier entries are
+  ignored because a visitor can make them up.
 
 On Gemini's free tier, Google may use API inputs to improve its products, so a public
 deployment shouldn't be used for sensitive personal notes.
